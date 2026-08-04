@@ -77,12 +77,12 @@ CREATE INDEX IF NOT EXISTS confirmations_observation_idx ON confirmations (obser
 -- ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS site_state (
   id         boolean PRIMARY KEY DEFAULT true CHECK (id),  -- 1行しか作れない
-  mode       text NOT NULL DEFAULT 'snow',                 -- 'snow' | 'disaster'
+  mode       text NOT NULL DEFAULT 'standby',                 -- 'standby'（平時＝そなえ） | 'disaster'
   notice     text,                                         -- 全ページ上部の告知
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-INSERT INTO site_state (id, mode) VALUES (true, 'snow') ON CONFLICT (id) DO NOTHING;
+INSERT INTO site_state (id, mode) VALUES (true, 'standby') ON CONFLICT (id) DO NOTHING;
 
 -- ─────────────────────────────────────────────
 -- 通報。人力で見る唯一のキュー。

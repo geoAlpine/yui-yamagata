@@ -611,3 +611,17 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
 .envbar a { color: #fff; font-weight: 700; }
 /* 環境帯が出ているときは、その下にヘッダを重ねる */
 .envbar ~ .topbar { top: 0; padding-top: 7px; }
+
+/* 平時（そなえ）の説明。空に見えるのを防ぐと同時に、
+   「今の状況を出す場ではない」ことを明示する。 */
+.standby-note {
+  background: var(--accent-bg);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  margin: 14px 0 4px;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.standby-note strong { color: var(--accent); }
+.standby-note .sub { display: block; margin-top: 6px; }

@@ -49,8 +49,28 @@ export default async function Home({
         やまがた結<span className="yomi">（ゆい）</span>
       </h1>
       <p className="tagline">
-        開いてる店・通れる道の今を、見た人が報告し合う
+        {mode === 'disaster'
+          ? '開いてる店・給水所の今を、見た人が報告し合う'
+          : '災害に備えて、近くの給水所や給油所を確かめておく'}
       </p>
+
+      {/*
+        平時に「今どこが開いてるか」は出さない。営業状況はGoogleのほうが正確で、
+        中途半端に出すとかえって信頼を損なう。
+        平時に見せるのはGoogleが持っていない情報（応急給水拠点・自家発電付き給油所）だけ。
+      */}
+      {mode !== 'disaster' && (
+        <div className="standby-note">
+          <strong>いまは平時です。</strong>
+          災害が起きるまで、ここは「そなえ」の地図です。
+          停電しても給油できる給油所や、断水したときの給水所の場所を、
+          いまのうちに確かめておいてください。
+          <br />
+          <span className="sub">
+            災害が起きると、営業中の店・物資配布・断水などの報告を受け付ける画面に切り替わります。
+          </span>
+        </div>
+      )}
 
       <div className="chiprow">
       <nav className="cats" aria-label="種類">

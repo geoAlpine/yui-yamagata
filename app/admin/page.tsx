@@ -37,7 +37,7 @@ async function guard() {
 async function actSetMode(formData: FormData) {
   'use server';
   await guard();
-  const mode = String(formData.get('mode')) === 'disaster' ? 'disaster' : 'snow';
+  const mode = String(formData.get('mode')) === 'disaster' ? 'disaster' : 'standby';
   const notice = String(formData.get('notice') ?? '').trim().slice(0, 200) || null;
   await setMode(mode, notice);
   revalidatePath('/');
@@ -117,10 +117,10 @@ export default async function AdminPage({
       </p>
       <form action={actSetMode} className="card">
         <div className="field">
-          <label>現在: <strong>{mode === 'disaster' ? '災害モード' : '平時（雪）モード'}</strong></label>
+          <label>現在: <strong>{mode === 'disaster' ? '災害モード' : '平時（そなえ）'}</strong></label>
           <div className="chips" style={{ marginTop: 8 }}>
             <label className="chip">
-              <input type="radio" name="mode" value="snow" defaultChecked={mode === 'snow'} /> 平時（雪）
+              <input type="radio" name="mode" value="standby" defaultChecked={mode === 'standby'} /> 平時（そなえ）
             </label>
             <label className="chip">
               <input type="radio" name="mode" value="disaster" defaultChecked={mode === 'disaster'} /> 災害

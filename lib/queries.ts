@@ -238,7 +238,7 @@ export async function getMode(): Promise<{ mode: Mode; notice: string | null }> 
   const rows = await query<{ mode: Mode; notice: string | null }>(
     `SELECT mode, notice FROM site_state WHERE id = true`
   );
-  return rows[0] ?? { mode: 'snow', notice: null };
+  return rows[0] ?? { mode: 'standby', notice: null };
 }
 
 export async function insertObservation(input: {

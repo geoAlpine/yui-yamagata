@@ -72,14 +72,29 @@ test('選択式の属性には選択肢がある', () => {
 
 test('モードごとに1つ以上のカテゴリがある', () => {
   assert.ok(categoriesForMode('disaster').length > 0);
-  assert.ok(categoriesForMode('snow').length > 0);
+  assert.ok(categoriesForMode('standby').length > 0);
 });
 
-test('モード内で order が重複していない（表示順が不定になる）', () => {
-  for (const mode of ['disaster', 'snow'] as const) {
-    const orders = categoriesForMode(mode).map((c) => c.order);
-    assert.equal(new Set(orders).size, orders.length, `${mode}: order が重複`);
+test('平時（そなえ）は災害モードの部分集合である', () => {
+  const disaster = new Set(categoriesForMode('disaster').map((c) => c.id));
+  for (const c of categoriesForMode('standby')) {
+    assert.ok(disaster.has(c.id), `${c.id}: 災害モードに無いカテゴリが平時に出ている`);
   }
+});
+
+test('平時に「今どこが開いてるか」系を出さない', () => {
+  // 平時の営業状況はGoogleのほうが正確。中途半端に出すと信頼を損なう。
+  // 平時に出すのはGoogleが持っていない情報（給水拠点・自家発電付き給油所）だけ。
+  const standby = categoriesForMode('standby').map((c) => c.id);
+  for (const id of ['store', 'cash', 'laundry', 'supply', 'lifeline', 'road', 'waste', 'comm']) {
+    assert.ok(!standby.includes(id), `${id}: 平時に出すべきでない`);
+  }
+  assert.ok(standby.includes('water'), '給水拠点は平時に確認できるべき');
+});
+
+test('order が重複していない（表示順が不定になる）', () => {
+  const orders = categoriesForMode('disaster').map((c) => c.order);
+  assert.equal(new Set(orders).size, orders.length, 'order が重複');
 });
 
 test('腐りやすいものほどTTLが短い', () => {

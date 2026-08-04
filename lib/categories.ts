@@ -4,9 +4,27 @@
  * このファイルが本サイトのドメインの中心。DESIGN.md 3.3 / 3.4 に対応する。
  * TTL（情報の賞味期限）はカテゴリごとに違う。ガソリンの待ち時間は2時間で腐るが、
  * 断水情報は24時間もつ。ここを一律にすると災害時に嘘をつくサイトになる。
+ *
+ * ── 雪モードを廃止した理由（2026-08-05） ──
+ * 当初は「平時＝雪 / 有事＝災害」の二段構えにしていた。平時から動かさないと
+ * 発災時に誰も知らない、という読みだった。しかし:
+ *
+ *   1. 平時の「今どこが開いてるか」はGoogleのほうが圧倒的に上。営業時間も
+ *      混雑状況もライブで出る。そこに勝負を挑む理由がない。
+ *   2. 除雪は道路の「区間」であり、点しか持てない現行モデルでは表現できない。
+ *   3. 吹雪の最中に人は雪かきをしていて投稿しない。報告の動機が弱い。
+ *   4. イマココナビは認知ゼロから1日7万人に届いた。災害時の発見はSNSで足りる。
+ *      sinsai.info を殺したのは事前認知の不足ではなく、発災後に作り始めて
+ *      収束後に捨てられたことだった。
+ *
+ * よって災害専用にする。うちが勝てるのは「公式情報が実態と食い違うとき」だけで、
+ * それは災害時に限られる。
+ *
+ * 平時は「そなえ」として、給水拠点や自家発電付き給油所の位置を確認する場になる。
+ * これらはGoogleにはない情報で、平時に確認しておく価値がある。
  */
 
-export type Mode = 'disaster' | 'snow';
+export type Mode = 'standby' | 'disaster';
 
 /** 状態の深刻度。表示色と並び順に使う */
 export type Severity = 'good' | 'warn' | 'bad' | 'unknown';
@@ -29,7 +47,6 @@ export interface AttrDef {
 
 export interface CategoryDef {
   id: string;
-  mode: Mode;
   label: string;
   /**
    * カードなど狭い場所に出す短い呼び名。
@@ -69,10 +86,8 @@ const WAIT_MINUTES: AttrDef = {
 };
 
 export const CATEGORIES: CategoryDef[] = [
-  // ─────────────── 災害モード ───────────────
   {
     id: 'gas',
-    mode: 'disaster',
     label: 'ガソリンスタンド',
     short: 'ガソリン',
     emptyReason: 'needsReport',
@@ -103,7 +118,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'store',
-    mode: 'disaster',
     label: 'スーパー・コンビニ',
     short: '買い物',
     emptyReason: 'needsReport',
@@ -118,7 +132,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'water',
-    mode: 'disaster',
     label: '給水所',
     short: '給水',
     // 当初 disasterOnly に分類したが誤り。応急給水拠点は自治体が平時から
@@ -159,7 +172,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'supply',
-    mode: 'disaster',
     label: '物資配布・炊き出し',
     short: '物資',
     emptyReason: 'disasterOnly',
@@ -174,7 +186,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'toilet',
-    mode: 'disaster',
     label: 'トイレ・入浴',
     short: 'トイレ・入浴',
     emptyReason: 'needsReport',
@@ -199,7 +210,6 @@ export const CATEGORIES: CategoryDef[] = [
   // ── ここから下は災害時の実需から追加したもの ──
   {
     id: 'charge',
-    mode: 'disaster',
     label: '充電できる場所',
     short: '充電',
     emptyReason: 'needsReport',
@@ -227,7 +237,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'comm',
-    mode: 'disaster',
     label: '携帯・Wi-Fi',
     short: '通信',
     emptyReason: 'needsReport',
@@ -255,7 +264,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'medical',
-    mode: 'disaster',
     label: '医療機関・薬局',
     short: '医療',
     emptyReason: 'needsReport',
@@ -270,7 +278,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'cash',
-    mode: 'disaster',
     label: 'ATM・現金',
     short: '現金',
     emptyReason: 'needsReport',
@@ -286,7 +293,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'laundry',
-    mode: 'disaster',
     label: 'コインランドリー',
     short: '洗濯',
     emptyReason: 'needsReport',
@@ -300,7 +306,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'waste',
-    mode: 'disaster',
     label: '災害ごみ仮置場',
     short: '災害ごみ',
     emptyReason: 'disasterOnly',
@@ -319,7 +324,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'lifeline',
-    mode: 'disaster',
     label: '断水・停電',
     short: 'ライフライン',
     emptyReason: 'disasterOnly',
@@ -333,7 +337,6 @@ export const CATEGORIES: CategoryDef[] = [
   },
   {
     id: 'road',
-    mode: 'disaster',
     label: '通行止め・道路被害',
     short: '道路',
     emptyReason: 'disasterOnly',
@@ -347,63 +350,6 @@ export const CATEGORIES: CategoryDef[] = [
     ],
   },
 
-  // ─────────────── 平時（雪）モード ───────────────
-  {
-    id: 'snow_clear',
-    mode: 'snow',
-    label: '除雪状況',
-    short: '除雪',
-    emptyReason: 'needsReport',
-    ttlMinutes: 720,
-    order: 1,
-    statuses: [
-      { id: 'done', label: '除雪済み', severity: 'good' },
-      { id: 'in_progress', label: '作業中', severity: 'warn' },
-      { id: 'not_yet', label: '未除雪', severity: 'bad' },
-    ],
-  },
-  {
-    id: 'road_surface',
-    mode: 'snow',
-    label: '路面状況',
-    short: '路面',
-    emptyReason: 'needsReport',
-    ttlMinutes: 360,
-    order: 2,
-    statuses: [
-      { id: 'dry', label: '乾いている', severity: 'good' },
-      { id: 'packed', label: '圧雪', severity: 'warn' },
-      { id: 'ice', label: 'アイスバーン', severity: 'bad' },
-    ],
-  },
-  {
-    id: 'road_winter',
-    mode: 'snow',
-    label: '通行止め・立ち往生',
-    short: '道路',
-    emptyReason: 'needsReport',
-    ttlMinutes: 720,
-    order: 3,
-    statuses: [
-      { id: 'open', label: '通行できる', severity: 'good' },
-      { id: 'jam', label: '渋滞・立ち往生', severity: 'warn' },
-      { id: 'closed', label: '通行止め', severity: 'bad' },
-    ],
-  },
-  {
-    id: 'roof_snow',
-    mode: 'snow',
-    label: '雪下ろし業者',
-    short: '雪下ろし',
-    emptyReason: 'needsReport',
-    ttlMinutes: 1440,
-    order: 4,
-    statuses: [
-      { id: 'accepting', label: '受付中', severity: 'good' },
-      { id: 'full', label: '満杯', severity: 'bad' },
-    ],
-    attrs: [{ id: 'contact', label: '連絡先', type: 'text' }],
-  },
 ];
 
 const BY_ID = new Map(CATEGORIES.map((c) => [c.id, c]));
@@ -412,8 +358,21 @@ export function getCategory(id: string): CategoryDef | undefined {
   return BY_ID.get(id);
 }
 
+/**
+ * モードごとの表示カテゴリ。
+ *
+ * standby（平時）は「そなえ」。発災前に位置を知っておく価値があるものだけを出す。
+ *   給水拠点・自家発電付き給油所・トイレ入浴・医療 …… Googleにない情報
+ * 「今どこが開いてるか」は平時には出さない。Googleのほうが正確なので、
+ * 中途半端に出すとかえって信頼を損なう。
+ */
+const STANDBY_CATEGORIES = ['water', 'gas', 'toilet', 'medical', 'charge'];
+
 export function categoriesForMode(mode: Mode): CategoryDef[] {
-  return CATEGORIES.filter((c) => c.mode === mode).sort((a, b) => a.order - b.order);
+  const all = CATEGORIES.sort((a, b) => a.order - b.order);
+  return mode === 'standby'
+    ? all.filter((c) => STANDBY_CATEGORIES.includes(c.id))
+    : all;
 }
 
 export function getStatus(categoryId: string, statusId: string): StatusDef | undefined {

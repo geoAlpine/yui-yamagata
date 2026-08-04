@@ -61,7 +61,7 @@ export default async function RootLayout({
         <header className="topbar">
           <div className="topbar-row">
             <span className={`mode-pill ${mode}`}>
-              {mode === 'disaster' ? '災害モード' : '平時（雪）モード'}
+              {mode === 'disaster' ? '災害モード' : 'そなえ'}
             </span>
             <p className="disclaimer">
               住民の目撃情報です。公式情報ではありません。

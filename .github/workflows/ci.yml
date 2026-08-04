@@ -88,3 +88,28 @@ jobs:
           echo "$html" | grep -q "住民の目撃情報です" || { echo "免責が消えている"; exit 1; }
           echo "$html" | grep -q "OpenStreetMap contributors" || { echo "OSMの出典が消えている"; exit 1; }
           echo "  OK"
+
+      - name: 本番は索引可・ステージング帯が出ていないこと
+        # ここが逆になると本番が検索結果から消える。静かに壊れるので固定する。
+        run: |
+          robots=$(curl -s http://127.0.0.1:3000/robots.txt)
+          echo "$robots" | grep -q "Allow: /" || { echo "本番なのに索引が止まっている"; exit 1; }
+          curl -s http://127.0.0.1:3000/ | grep -q envbar && { echo "本番に確認用の帯が出ている"; exit 1; }
+          echo "  OK"
+          kill %1 || true
+
+      - name: ステージングとして起動したら noindex になること
+        # 同じビルド成果物を環境変数だけで切り替える。
+        # robots.txt がビルド時に焼き付いていると、ここで落ちる。
+        env:
+          SITE_ENV: staging
+        run: |
+          npm start -- -p 3001 &
+          for i in $(seq 1 40); do
+            curl -sf -o /dev/null http://127.0.0.1:3001/ && break
+            sleep 1
+          done
+          robots=$(curl -s http://127.0.0.1:3001/robots.txt)
+          echo "$robots" | grep -q "Disallow: /" || { echo "ステージングが索引可になっている"; exit 1; }
+          curl -s http://127.0.0.1:3001/ | grep -q envbar || { echo "確認用の帯が出ていない"; exit 1; }
+          echo "  OK"

@@ -589,3 +589,25 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
 }
 .cat.on .n { background: rgba(255,255,255,.22); color: #fff; }
 .cat .n.zero { color: var(--faint); }
+
+/* ステージング／開発中の帯。
+   本物と取り違えると実害が出るので、ここだけは配色の穏やかさより
+   見落とさないことを優先する。サイト本体では使わない色を使う。 */
+.envbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: #4a3b6b;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.envbar strong { font-size: 14px; }
+.envbar a { color: #fff; font-weight: 700; }
+/* 環境帯が出ているときは、その下にヘッダを重ねる */
+.envbar ~ .topbar { top: 0; padding-top: 7px; }

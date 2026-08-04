@@ -1,0 +1,31 @@
+# ステージング: /etc/systemd/system/yui-staging.service
+[Unit]
+Description=やまがた結（ゆい） 動作確認用
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deploy-yui
+WorkingDirectory=/var/www/yui/staging/current
+EnvironmentFile=/etc/yui/staging.env
+Environment=NODE_ENV=production
+Environment=SITE_ENV=staging
+Environment=PORT=3011
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+# ステージングは本番より小さく縛る。確認用が本番を圧迫してはいけない。
+MemoryMax=384M
+MemoryHigh=320M
+CPUQuota=75%
+TasksMax=128
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/yui/staging
+
+[Install]
+WantedBy=multi-user.target

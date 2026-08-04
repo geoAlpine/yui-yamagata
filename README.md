@@ -64,7 +64,20 @@ CI（`.github/workflows/ci.yml`）は上記に加えて、**PostGISを立てて�
 さらに「免責の常時表示」と「OpenStreetMapの出典」が消えていないかも見ている。
 どちらも消しても動いてしまうので、CIで固定しないと静かに失われる。
 
-デプロイ手順と鍵の扱いは [docs/deploy.md](./docs/deploy.md)。
+デプロイ手順と鍵の扱いは [docs/deploy.md](./docs/deploy.md)、
+ステージングは [docs/staging.md](./docs/staging.md)。
+
+### 環境の切り替え
+
+同じビルド成果物を環境変数だけで切り替える。
+
+```bash
+npm start                    # 本番として動く（索引可・帯なし）
+SITE_ENV=staging npm start   # 確認用として動く（noindex・紫の帯）
+```
+
+災害情報サイトのステージングは、被災者が見つけて信じると実害が出る。
+帯・noindex・Basic認証の三重で止める（詳細は docs/staging.md）。
 
 ## 構成
 

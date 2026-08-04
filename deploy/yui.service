@@ -1,0 +1,31 @@
+# 本番: /etc/systemd/system/yui.service
+[Unit]
+Description=やまがた結（ゆい） 本番
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=deploy-yui
+WorkingDirectory=/var/www/yui/production/current
+EnvironmentFile=/etc/yui/production.env
+Environment=NODE_ENV=production
+Environment=PORT=3010
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+
+# 同居している商用サイト（yukemuri-coffee.com 等）を巻き込まないための上限。
+# 防災サイトが暴走しても、他のサイトのメモリとCPUは侵さない。
+MemoryMax=768M
+MemoryHigh=640M
+CPUQuota=150%
+TasksMax=256
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/yui/production
+
+[Install]
+WantedBy=multi-user.target

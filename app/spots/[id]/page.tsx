@@ -1,0 +1,134 @@
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { getSpot, getObservations } from '@/lib/queries';
+import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
+import { evaluateFreshness, formatAge } from '@/lib/freshness';
+import ReportAbuse from '@/components/ReportAbuse';
+
+export const revalidate = 60;
+
+function fmtTime(iso: string | Date) {
+  const d = typeof iso === 'string' ? new Date(iso) : iso;
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(
+    d.getMinutes()
+  ).padStart(2, '0')}`;
+}
+
+export default async function SpotPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const spot = await getSpot(id);
+  if (!spot) notFound();
+
+  const observations = await getObservations(spot.id);
+  const cat = getCategory(spot.category);
+  const latest = observations[0];
+  const fresh = latest
+    ? evaluateFreshness(spot.category, latest.observed_at)
+    : null;
+  const latestStatus = latest ? getStatus(spot.category, latest.status) : undefined;
+  const showStatus = fresh?.showStatus && latestStatus;
+
+  return (
+    <>
+      <p style={{ marginTop: 14 }}>
+        <Link href="/">← 一覧にもどる</Link>
+      </p>
+
+      <h1 style={{ fontSize: 20, margin: '10px 0 4px' }}>
+        {spot.name}
+        {spot.is_priority && <span className="priority">自家発電</span>}
+      </h1>
+      <p className="sub">
+        {cat?.label}
+        {spot.address ? ` ・ ${spot.address}` : ''}
+      </p>
+      {spot.note && <p className="note">{spot.note}</p>}
+
+      <div className="card" style={{ marginTop: 16 }}>
+        {showStatus ? (
+          <div className={`status ${latestStatus!.severity}`}>
+            {latestStatus!.label}
+          </div>
+        ) : (
+          <div className="status unknown">
+            {latest ? '状況不明（情報が古い）' : 'まだ情報がありません'}
+          </div>
+        )}
+
+        {showStatus && (
+          <div className="attrs">
+            {attrsForStatus(spot.category, latest.status).map((a) => {
+              const v = latest.attrs?.[a.id];
+              if (!v) return null;
+              const label =
+                a.options?.find((o) => o.value === v)?.label ?? `${v}${a.unit ?? ''}`;
+              return <span key={a.id}>{label}</span>;
+            })}
+          </div>
+        )}
+
+        {showStatus && latest.note && <div className="note">{latest.note}</div>}
+
+        {latest && fresh && (
+          <div className="age">
+            <span className={fresh.level === 'fresh' ? 'strong' : 'age-warn'}>
+              {formatAge(fresh.ageMinutes)}に確認
+            </span>
+            <span>（{fmtTime(latest.observed_at)} 時点）</span>
+            {latest.agrees > 0 && <span>{latest.agrees}人が同意</span>}
+            {latest.disagrees > latest.agrees && latest.disagrees > 0 && (
+              <span className="conflict">⚠ 情報が食い違っています</span>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginTop: 14 }}>
+          <Link className="btn primary block" href={`/report/${spot.id}`}>
+            今の状況を報告する
+          </Link>
+        </div>
+      </div>
+
+      {/*
+        削除ではなく履歴として残す。
+        「12:00 開いてた → 15:00 閉まってた」という推移そのものが情報になる（DESIGN.md 3.1）。
+      */}
+      <h2>これまでの報告</h2>
+      {observations.length === 0 ? (
+        <p className="sub">まだ報告がありません。</p>
+      ) : (
+        <ul className="history">
+          {observations.map((o) => {
+            const s = getStatus(spot.category, o.status);
+            return (
+              <li key={o.id}>
+                <span className="t">{fmtTime(o.observed_at)}</span>
+                <span>
+                  <strong style={{ color: `var(--${s?.severity ?? 'unknown'})` }}>
+                    {s?.label ?? o.status}
+                  </strong>
+                  {o.note ? <span className="sub"> — {o.note}</span> : null}
+                  {o.agrees > 0 && (
+                    <span className="sub"> ・{o.agrees}人が同意</span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {/* 事前審査をしない以上、利用者が「おかしい」と言える口が要る */}
+      <ReportAbuse observationId={latest?.id} spotId={spot.id} />
+
+      <p className="sub" style={{ marginTop: 20 }}>
+        この情報は住民の目撃情報です。公式情報ではありません。
+        {cat && `（${cat.label}の情報は約${Math.round(cat.ttlMinutes / 60)}時間で「不明」に戻ります）`}
+      </p>
+    </>
+  );
+}

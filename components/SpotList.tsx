@@ -1,0 +1,182 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import SpotCard from './SpotCard';
+import { readFavorites, toggleFavorite } from '@/lib/favorites';
+import { getCategory } from '@/lib/categories';
+import type { SpotRow } from '@/lib/queries';
+
+/**
+ * 一覧。
+ *
+ * サーバが「最近更新された順」で描画したHTMLをそのまま受け取り、
+ * 位置情報が取れたらクライアントで「近い順」に取り直す。
+ *
+ * これにより JS が落ちても・位置情報を拒否しても、一覧は最初から読める。
+ * 地図を既定にしないのは、災害時に地図タイルが真っ先に開けなくなるため（DESIGN.md 5.1）。
+ */
+export default function SpotList({
+  initialSpots,
+  categories,
+  serverNow,
+  emptyCategory,
+}: {
+  initialSpots: SpotRow[];
+  categories: string[];
+  serverNow: number;
+  /** 単一カテゴリで絞り込んでいる場合のID。空のときの説明を出し分ける */
+  emptyCategory?: string | null;
+}) {
+  const [locState, setLocState] = useState<
+    'idle' | 'asking' | 'ok' | 'denied' | 'unavailable'
+  >('idle');
+
+  // 位置情報で取り直した結果。どの絞り込みに対する結果かを一緒に持つ。
+  // props を state に写す effect を書くと、カテゴリを切り替えたときに
+  // 古い結果が一瞬残る。どの条件の結果かを見て派生させれば effect は要らない。
+  const filterKey = categories.join(',');
+  const [fetched, setFetched] = useState<{ key: string; spots: SpotRow[] } | null>(null);
+  const spots = fetched?.key === filterKey ? fetched.spots : initialSpots;
+
+  // お気に入りは端末内にのみ持つ。サーバは知らないので描画後に読む。
+  const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const t = setTimeout(() => setFavorites(readFavorites()), 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  // お気に入りを先頭に。距離順・新着順という本来の並びは崩さず、前に寄せるだけ。
+  const ordered = useMemo(() => {
+    if (favorites.size === 0) return spots;
+    const fav: SpotRow[] = [];
+    const rest: SpotRow[] = [];
+    for (const s of spots) (favorites.has(s.id) ? fav : rest).push(s);
+    return [...fav, ...rest];
+  }, [spots, favorites]);
+
+  const sortByDistance = useCallback(
+    (lat: number, lng: number) => {
+      const q = new URLSearchParams({
+        lat: String(lat),
+        lng: String(lng),
+        categories: categories.join(','),
+      });
+      fetch(`/api/spots?${q}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (Array.isArray(d.spots)) {
+            setFetched({ key: categories.join(','), spots: d.spots });
+          }
+          setLocState('ok');
+        })
+        .catch(() => setLocState('unavailable'));
+    },
+    [categories]
+  );
+
+  const requestLocation = useCallback(() => {
+    if (!('geolocation' in navigator)) return setLocState('unavailable');
+    setLocState('asking');
+    navigator.geolocation.getCurrentPosition(
+      (p) => sortByDistance(p.coords.latitude, p.coords.longitude),
+      () => setLocState('denied'),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 }
+    );
+  }, [sortByDistance]);
+
+  // 権限が既に許可済みなら黙って近い順にする。毎回タップさせない。
+  useEffect(() => {
+    if (!navigator.permissions?.query) return;
+    navigator.permissions
+      .query({ name: 'geolocation' as PermissionName })
+      .then((s) => {
+        if (s.state === 'granted') requestLocation();
+      })
+      .catch(() => {});
+  }, [requestLocation]);
+
+  return (
+    <>
+      <div className="locbar">
+        {locState === 'ok' ? (
+          <span>現在地から近い順に表示中</span>
+        ) : (
+          <>
+            <span>
+              {locState === 'denied'
+                ? '位置情報が使えないため、新しい順で表示しています'
+                : locState === 'unavailable'
+                  ? 'この端末では位置情報が使えません'
+                  : '新しい順で表示しています'}
+            </span>
+            {locState !== 'unavailable' && (
+              <button onClick={requestLocation} disabled={locState === 'asking'}>
+                {locState === 'asking' ? '取得中…' : '近い順にする'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {ordered.length === 0 ? (
+        <EmptyState categoryId={emptyCategory} />
+      ) : (
+        ordered.map((s) => (
+          <SpotCard
+            key={s.id}
+            spot={s}
+            serverNow={serverNow}
+            isFavorite={favorites.has(s.id)}
+            onToggleFavorite={(id) => setFavorites(toggleFavorite(id))}
+          />
+        ))
+      )}
+
+      {favorites.size > 0 && (
+        <p className="sub" style={{ marginTop: 12 }}>
+          ★のついた場所を先頭に表示しています。お気に入りはこの端末にのみ保存され、
+          他の端末には引き継がれません。
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * 0件のときの説明。
+ *
+ * 「空」には2種類あり、同じ文言で済ませると利用者に嘘をつく。
+ *   - 給水所や物資配布は、平時には存在しない。発災時に自治体が設置して初めて生まれる。
+ *     ここで「登録してください」と促すのは的外れ。
+ *   - 除雪や路面は、場所が実在するのに誰も登録していないだけ。
+ *     こちらは最初の1件を促すべきで、「空で正常」と言ってはいけない。
+ */
+function EmptyState({ categoryId }: { categoryId?: string | null }) {
+  const cat = categoryId ? getCategory(categoryId) : null;
+
+  if (cat?.emptyReason === 'disasterOnly') {
+    return (
+      <p className="empty">
+        {cat.label}の情報は、災害が起きたときに集まります。
+        <br />
+        <span className="sub">
+          給水所や物資の配布場所は、自治体が設置してから登録されます。
+          <br />
+          いま設置されているのを見かけたら、下の「場所を追加」から登録できます。
+        </span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="empty">
+      {cat ? `${cat.label}は` : 'この種類の場所は'}まだ登録がありません。
+      <br />
+      <span className="sub">
+        あなたの報告が最初の1件になります。
+        <br />
+        下の「場所を追加」から登録してください。
+      </span>
+    </p>
+  );
+}

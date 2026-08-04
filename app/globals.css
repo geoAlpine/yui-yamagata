@@ -1,49 +1,591 @@
+/*
+ * 配色とレイアウト。
+ *
+ * ── 配色の方針 ──
+ * 明るく、優しく、不安を煽らない。災害時に開くサイトなので、
+ * 暗い画面や強い警告色は、それ自体がストレスになる。
+ *
+ * ★ダークテーマは持たない。
+ *   端末がダークモードでも常に明るい画面を出す。`color-scheme: light` を
+ *   宣言しているので、フォーム部品も勝手に暗転しない。
+ *
+ *   - 背景は明るい生成り。紙に近い안心感
+ *   - 文字は黒ではなく濃い墨茶。コントラストは確保しつつ刺さない
+ *   - 「悪い状態」は警告赤ではなく落ち着いた朱。読めるが叫ばない
+ *
+ * ── レイアウトの方針 ──
+ * スマホ縦持ち・片手操作が基準。
+ *   - 画面上部は細い固定バーだけ（免責とモードを常時表示）
+ *   - 移動は親指の届く下部タブバー
+ *   - タップ目標は最低44px、主要ボタンは52px
+ *   - iPhone のノッチ／ホームインジケータを safe-area で避ける
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light; /* 端末のダークモードに追従させない */
+
+  --bg: #fdfcf8;         /* 明るい生成り */
+  --surface: #ffffff;
+  --surface-2: #f7f4ed;  /* わずかに沈めた面 */
+  --border: #e9e3d8;
+  --border-strong: #d9d1c2;
+
+  --text: #322e28;       /* 黒ではなく濃い墨茶 */
+  --muted: #6e675d;
+  --faint: #a09889;
+
+  --good: #2f7a52;
+  --good-bg: #e8f4ec;
+  --warn: #996515;        /* AA 4.5:1 を満たすところまで詰めた */
+  --warn-bg: #fdf3e0;
+  --bad: #aa5246;        /* 警告赤ではなく落ち着いた朱。AA 4.5:1 */
+  --bad-bg: #fbeae7;
+  --unknown: #71695c;
+  --unknown-bg: #f0ebe1;
+
+  --accent: #2f6f9e;
+  --accent-bg: #e9f1f8;
+
+  --radius: 12px;
+  --tap: 52px;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --tabbar-h: 60px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 html {
-  height: 100%;
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  background: var(--bg);
 }
 
 body {
-  min-height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+  /* タップ時の青いハイライトを消す。押した感は :active で自前に出す */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+a { color: var(--accent); }
+
+/* 下部タブバーと safe-area の分だけ本文を空ける */
+.wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 14px calc(var(--tabbar-h) + var(--safe-b) + 28px);
+}
+
+/* ── 上部の固定バー ─────────────────────
+   免責とモードだけを常時見せる。タイトルや移動は本文と下部タブへ回し、
+   スマホの縦方向を本文に使う。 */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: calc(var(--safe-t) + 7px) 14px 7px;
+}
+.topbar-row {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mode-pill {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+/* 災害モードでも赤帯にしない。開いた瞬間に不安を上乗せしない */
+.mode-pill.disaster { background: var(--warn-bg); color: var(--warn); }
+.mode-pill.snow { background: var(--accent-bg); color: var(--accent); }
+
+/* 公式を名乗らないことは設計原則。常時表示する */
+.disclaimer {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.notice-strip {
+  max-width: 640px;
+  margin: 7px auto 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.page-title { font-size: 20px; font-weight: 800; margin: 18px 0 2px; letter-spacing: .01em; }
+
+/* ── 下部タブバー（親指の届く位置） ───── */
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-b);
+}
+.tabbar a {
+  flex: 1;
+  min-height: var(--tabbar-h);
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
-}
-
-a {
-  color: inherit;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
   text-decoration: none;
 }
+.tabbar a .ico { font-size: 21px; line-height: 1; }
+.tabbar a.on { color: var(--accent); }
+.tabbar a:active { background: var(--surface-2); }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* ── カテゴリ／地域のチップ列 ───────────
+   13カテゴリを横スクロールで置く。端が切れていることが分かるよう
+   右側にフェードを重ね、スナップを効かせる。 */
+.chiprow {
+  position: relative;
+  margin: 0 -14px;
 }
+.chiprow::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 28px;
+  background: linear-gradient(to right, transparent, var(--bg));
+  pointer-events: none;
+}
+.cats {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 10px 14px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.cats::-webkit-scrollbar { display: none; }
+.cat {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 15px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cat.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.cat:active { transform: scale(.97); }
+.muni .cat { font-size: 13.5px; min-height: 40px; }
+
+/* ── 位置情報バー ─────────────────────── */
+.locbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 4px 0 10px;
+}
+.locbar button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.locbar button:active { background: var(--accent-bg); }
+
+/* ── スポットのカード ─────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.card.is-stale { opacity: .6; }
+
+.card-head { display: flex; align-items: flex-start; gap: 8px; }
+.card-name {
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+}
+.card-name:active { color: var(--accent); }
+.card-name .icon { margin-right: 5px; }
+.dist {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
+
+.priority {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* 状態は大きく。屋外で片手で見る */
+.status {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  font-size: 16.5px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+.status.good { background: var(--good-bg); color: var(--good); }
+.status.warn { background: var(--warn-bg); color: var(--warn); }
+.status.bad { background: var(--bad-bg); color: var(--bad); }
+.status.unknown { background: var(--unknown-bg); color: var(--unknown); }
+
+.attrs { font-size: 14.5px; color: var(--text); margin-top: 7px; }
+.attrs span + span::before { content: " ・ "; color: var(--faint); }
+
+.note { font-size: 14.5px; color: var(--muted); margin-top: 7px; }
+
+/* 鮮度。状態そのものより「いつの情報か」が判断材料になる場面が多い */
+.age {
+  margin-top: 9px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 9px;
+  align-items: center;
+}
+.age .strong { color: var(--text); font-weight: 800; }
+.age-warn { color: var(--warn); font-weight: 800; }
+.conflict { color: var(--bad); font-weight: 700; }
+
+/* ── 再確認（1タップ） ───────────────── */
+.confirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-strong);
+}
+.confirm .q { font-size: 13.5px; color: var(--muted); flex: 1 1 100%; }
+.confirm.emphasize .q { color: var(--warn); font-weight: 700; }
+.confirm form { display: contents; }
+
+.btn-sm {
+  flex: 1 1 0;
+  min-height: 46px;
+  min-width: 72px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 800;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.btn-sm.yes { border-color: var(--good); color: var(--good); background: var(--good-bg); }
+.btn-sm.no { border-color: var(--bad); color: var(--bad); background: var(--bad-bg); }
+.btn-sm:active { transform: scale(.97); }
+.btn-sm:disabled { opacity: .5; }
+.confirm-done { font-size: 14px; color: var(--good); font-weight: 800; }
+
+/* ── ボタン全般 ───────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 20px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.block { display: flex; width: 100%; }
+.btn:active { transform: scale(.985); }
+.btn:disabled { opacity: .45; }
+
+/* ── 報告フォーム ─────────────────────── */
+.status-choices { display: grid; gap: 11px; margin: 16px 0; }
+.status-choice {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 64px;
+  padding: 12px 18px;
+  border: 2px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 17.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.status-choice.on {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.status-choice:active { transform: scale(.99); }
+.status-choice .dot { width: 13px; height: 13px; border-radius: 50%; flex: 0 0 auto; }
+.status-choice .dot.good { background: var(--good); }
+.status-choice .dot.warn { background: var(--warn); }
+.status-choice .dot.bad { background: var(--bad); }
+
+/* 送信ボタンは画面下に貼り付けて、親指で押せる位置に置く */
+.sticky-cta {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + var(--safe-b) + 10px);
+  z-index: 10;
+  margin-top: 16px;
+}
+
+.optional {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+.optional summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+}
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13.5px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+.field select,
+.field input[type="text"],
+.field input[type="password"],
+.field textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px; /* iOSで自動ズームさせないため16px以上 */
+  font-family: inherit;
+}
+.field textarea { min-height: 84px; }
+
+.chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.chip {
+  min-height: 44px;
+  padding: 0 15px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip:active { transform: scale(.97); }
+.chip input[type="radio"] { margin-right: 6px; }
+
+/* ── お知らせ ─────────────────────────── */
+.caution {
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  margin: 15px 0;
+  font-size: 14.5px;
+  color: var(--warn);
+  line-height: 1.7;
+}
+.caution strong { display: block; margin-bottom: 5px; }
+.caution p { margin: 0 0 7px; }
+.caution a { color: var(--warn); font-weight: 700; }
+
+.verified {
+  background: var(--good-bg); color: var(--good);
+  font-weight: 800; font-size: 12px; padding: 2px 9px; border-radius: 5px;
+  white-space: nowrap;
+}
+.unverified {
+  background: var(--unknown-bg); color: var(--unknown);
+  font-size: 12px; padding: 2px 9px; border-radius: 5px; white-space: nowrap;
+}
+
+/* 井戸水など、健康被害に直結しうる情報への注記 */
+.spot-caution {
+  margin-top: 9px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--warn-bg);
+  padding: 8px 11px;
+  border-radius: 8px;
+}
+
+.fav {
+  background: none; border: none;
+  font-size: 24px; line-height: 1;
+  padding: 0 2px; margin: -2px 0 0;
+  min-width: 40px; min-height: 40px;
+  cursor: pointer; color: var(--faint); flex: 0 0 auto;
+}
+.fav.on { color: #d9a12c; }
+.fav:active { transform: scale(.9); }
+
+.coords-ok { font-size: 15.5px; font-weight: 800; color: var(--good); }
+
+/* ── 詳細ページの履歴 ─────────────────── */
+.history { list-style: none; padding: 0; margin: 12px 0 0; }
+.history li {
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 11px;
+  align-items: baseline;
+  font-size: 14.5px;
+}
+.history .t {
+  font-size: 13px; color: var(--muted); flex: 0 0 auto;
+  font-variant-numeric: tabular-nums; min-width: 86px;
+}
+
+h2 { font-size: 18px; margin: 26px 0 9px; }
+.empty { text-align: center; color: var(--muted); padding: 44px 12px; font-size: 15px; }
+.sub { font-size: 13.5px; color: var(--muted); line-height: 1.6; }
+.err { color: var(--bad); font-weight: 800; font-size: 14.5px; }
+.official-links {
+  font-size: 13.5px; color: var(--muted); line-height: 2;
+  margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--border);
+}
+
+/* 画面の広い端末では詰まりすぎないように少しだけ余白を足す */
+@media (min-width: 600px) {
+  .wrap { padding-left: 20px; padding-right: 20px; }
+  .chiprow { margin: 0 -20px; }
+  .cats { padding-left: 20px; padding-right: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+  .btn:active, .btn-sm:active, .cat:active, .chip:active, .fav:active,
+  .status-choice:active { transform: none; }
+}
+
+/* 種類バッジ。絵文字の代わりに短い日本語で示す */
+.statusline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.statusline .status { margin-top: 0; }
+.cat-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.tabbar a .ico { display: block; }
+
+/* 文中のボタン。見た目はリンクだが、押すと動くもの */
+.linkish {
+  background: none;
+  border: none;
+  padding: 6px 0;
+  min-height: 40px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* サイト名の読み仮名。「結」を「けつ」と読ませないための保険。
+   災害時に口頭で伝わることがこのサイトの生命線なので、読みは常に添える。 */
+.yomi { font-size: 15px; font-weight: 600; color: var(--muted); }
+.tagline { font-size: 14px; color: var(--muted); margin: 2px 0 0; line-height: 1.5; }
+
+/* カテゴリの件数。0件を隠さず、ただし主張させない。
+   隠すと利用者がそのカテゴリに場所を追加できなくなる。 */
+.cat .n {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin-left: 2px;
+}
+.cat.on .n { background: rgba(255,255,255,.22); color: #fff; }
+.cat .n.zero { color: var(--faint); }

@@ -22,11 +22,11 @@
 # 1. DBを用意
 createdb bousai
 psql -d bousai -f db/001_schema.sql
-psql -d bousai -f db/002_seed_dev.sql          # 開発用の仮スポット（座標は概算）
-psql -d bousai -f db/003_seed_observations_dev.sql  # 鮮度3段階が見えるダミー観測
-psql -d bousai -f db/004_notices.sql
-psql -d bousai -f db/005_identity_and_admin.sql
-psql -d bousai -f db/006_notice_owner.sql
+for f in db/0*.sql; do psql -d bousai -f "$f"; done
+
+# 開発用のダミーデータ（★本番には流さない。db/dev/README.md 参照）
+psql -d bousai -f db/dev/002_seed_dev.sql
+psql -d bousai -f db/dev/003_seed_observations_dev.sql
 
 # 2. 接続先と鍵
 cat > .env.local <<'ENV'

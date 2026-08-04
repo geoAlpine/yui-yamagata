@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 取り込み用に手で置く外部データ（エネ庁のCSV等）。
+# 公開データだが、リポジトリに置くと更新の追跡が曖昧になるので持ち込まない。
+/data/*
+!/data/.gitkeep
+
+# ローカルのDBダンプ
+*.dump
+*.sql.gz

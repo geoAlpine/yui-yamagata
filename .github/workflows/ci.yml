@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同じブランチに続けて push したら前の実行は打ち切る
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    # ビルドが通るだけの CI は意味が薄い。
+    # 実際に PostGIS を立ててマイグレーションを流し、ページが返るところまで見る。
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: bousai
+          POSTGRES_PASSWORD: bousai
+          POSTGRES_DB: bousai
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U bousai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://bousai:bousai@localhost:5432/bousai
+      # 本番の値は絶対に置かない。CIはあくまで動作確認用のダミー
+      TOKEN_SECRET: ci-dummy-secret-not-for-production
+      ADMIN_PASSWORD: ci-dummy-password
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: 型チェック
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: テスト
+        run: npm test
+
+      - name: スキーマを流す
+        run: |
+          for f in db/0*.sql; do
+            echo "--- $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: ビルド
+        run: npm run build
+
+      - name: 起動して主要ページが返るか確認
+        run: |
+          npm start -- -p 3000 &
+          for i in $(seq 1 40); do
+            curl -sf -o /dev/null http://127.0.0.1:3000/ && break
+            sleep 1
+          done
+          fail=0
+          for p in / /notices /notices/new /spots/new /admin; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3000$p")
+            echo "  $p -> $code"
+            [ "$code" = "200" ] || fail=1
+          done
+          exit $fail
+
+      - name: 免責と出典が消えていないか
+        # ODbL は出典表示を要求している。免責は設計原則。
+        # どちらも「消しても動く」ので、CIで固定しておかないと静かに消える。
+        run: |
+          html=$(curl -s http://127.0.0.1:3000/)
+          echo "$html" | grep -q "住民の目撃情報です" || { echo "免責が消えている"; exit 1; }
+          echo "$html" | grep -q "OpenStreetMap contributors" || { echo "OSMの出典が消えている"; exit 1; }
+          echo "  OK"

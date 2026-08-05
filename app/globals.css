@@ -625,3 +625,22 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
 }
 .standby-note strong { color: var(--accent); }
 .standby-note .sub { display: block; margin-top: 6px; }
+
+/* 外部サービスへの導線。張り合わずに送り出す部分なので、控えめに置く */
+.external {
+  margin-top: 18px;
+  padding: 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.external a {
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.external .sub { margin: 0; }

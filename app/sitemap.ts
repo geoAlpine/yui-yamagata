@@ -29,6 +29,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const urls: MetadataRoute.Sitemap = [
     { url: PRODUCTION_URL, lastModified: now, priority: 1 },
     { url: `${PRODUCTION_URL}/notices`, lastModified: now, priority: 0.6 },
+    // 運営者と免責。検索から直接来た人が「誰が出している情報か」に
+    // 辿り着けるようにする。自治体の公式と取り違えられるのを避けたい
+    { url: `${PRODUCTION_URL}/about`, lastModified: now, priority: 0.5 },
   ];
 
   for (const c of cats) {

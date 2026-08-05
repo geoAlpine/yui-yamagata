@@ -72,6 +72,17 @@ export default async function RootLayout({
 
         <main className="wrap">{children}</main>
 
+        {/*
+          運営者を明示する。災害時に人の行動を左右する情報を出す以上、
+          誰が運営しているかを隠したまま使わせるべきではない。
+          あわせて「誰も確認していない」ことへの導線もここに置く。
+          自治体の公式サイトと取り違えられるのがいちばん危ない。
+        */}
+        <footer className="sitefoot">
+          <a href="/about">このサイトについて・免責</a>
+          <span>運営: geoAlpine合同会社（自治体ではありません）</span>
+        </footer>
+
         <TabBar />
       </body>
     </html>

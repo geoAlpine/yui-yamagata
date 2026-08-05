@@ -830,3 +830,32 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
 .confirm.invite { flex-direction: column; align-items: stretch; gap: 8px; }
 .confirm.invite .q { flex: none; text-align: center; }
 .confirm.invite .btn-sm { width: 100%; min-height: 48px; }
+
+/*
+  フッター。タブバーに隠れないよう下に余白を取る。
+  目立たせる必要はないが、探して見つからないのは困る。
+*/
+.sitefoot {
+  max-width: 720px;
+  margin: 34px auto 0;
+  padding: 18px 16px calc(76px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+.sitefoot a { color: var(--muted); }
+
+/* /about の読み物。行間を広めに取る */
+.about-list { margin: 10px 0 0; padding-left: 20px; line-height: 1.85; }
+.about-list li { margin-bottom: 9px; }
+.about-dl { margin: 0; }
+.about-dl dt {
+  font-weight: 800; font-size: 13.5px; color: var(--muted);
+  margin-top: 12px;
+}
+.about-dl dt:first-child { margin-top: 0; }
+.about-dl dd { margin: 3px 0 0; line-height: 1.75; }

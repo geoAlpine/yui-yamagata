@@ -53,6 +53,16 @@ const TABS = [
     match: (p: string) => p.startsWith('/notices'),
   },
   {
+    href: '/mine',
+    label: '自分の報告',
+    icon: (
+      <Icon>
+        <path d="M4.5 6.5h15M4.5 12h15M4.5 17.5h9" />
+      </Icon>
+    ),
+    match: (p: string) => p === '/mine',
+  },
+  {
     href: '/spots/new',
     label: '場所を追加',
     icon: (

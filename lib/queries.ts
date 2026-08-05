@@ -75,7 +75,7 @@ export async function findSpots(opts: {
     LEFT JOIN LATERAL (
       SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note
       FROM observations o2
-      WHERE o2.spot_id = s.id AND NOT o2.is_hidden
+      WHERE o2.spot_id = s.id AND NOT o2.is_hidden AND o2.withdrawn_at IS NULL
       ORDER BY o2.observed_at DESC
       LIMIT 1
     ) o ON true
@@ -146,7 +146,7 @@ export async function searchSpots(opts: {
     FROM spots s
     LEFT JOIN LATERAL (
       SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note
-      FROM observations o2 WHERE o2.spot_id = s.id AND NOT o2.is_hidden
+      FROM observations o2 WHERE o2.spot_id = s.id AND NOT o2.is_hidden AND o2.withdrawn_at IS NULL
       ORDER BY o2.observed_at DESC LIMIT 1
     ) o ON true
     LEFT JOIN LATERAL (
@@ -225,7 +225,7 @@ export async function getObservations(spotId: string, limit = 20) {
               COUNT(*) FILTER (WHERE NOT c.agrees) AS disagrees
        FROM confirmations c WHERE c.observation_id = o.id
      ) cf ON true
-     WHERE o.spot_id = $1 AND NOT o.is_hidden
+     WHERE o.spot_id = $1 AND NOT o.is_hidden AND o.withdrawn_at IS NULL
      ORDER BY o.observed_at DESC
      LIMIT $2`,
     [spotId, limit]
@@ -311,15 +311,11 @@ export async function insertNotice(input: {
   return rows[0];
 }
 
-export async function getMode(): Promise<{
-  mode: Mode;
-  notice: string | null;
-  hazard: string | null;
-}> {
-  const rows = await query<{ mode: Mode; notice: string | null; hazard: string | null }>(
-    `SELECT mode, notice, hazard FROM site_state WHERE id = true`
+export async function getMode(): Promise<{ mode: Mode; notice: string | null }> {
+  const rows = await query<{ mode: Mode; notice: string | null }>(
+    `SELECT mode, notice FROM site_state WHERE id = true`
   );
-  return rows[0] ?? { mode: 'standby', notice: null, hazard: null };
+  return rows[0] ?? { mode: 'standby', notice: null };
 }
 
 export async function insertObservation(input: {
@@ -464,11 +460,10 @@ export async function recentObservationCount(
 // 管理用
 // ─────────────────────────────────────────────
 
-export async function setMode(mode: Mode, notice: string | null, hazard: string | null) {
+export async function setMode(mode: Mode, notice: string | null) {
   await query(
-    `UPDATE site_state SET mode = $1, notice = $2, hazard = $3, updated_at = now()
-     WHERE id = true`,
-    [mode, notice, hazard]
+    `UPDATE site_state SET mode = $1, notice = $2, updated_at = now() WHERE id = true`,
+    [mode, notice]
   );
 }
 
@@ -567,4 +562,48 @@ export async function countByCategory(categories: string[]) {
  */
 export async function getServerNow(): Promise<number> {
   return Date.now();
+}
+
+/**
+ * 自分の投稿を取り消す。
+ *
+ * 災害時に急いで押すので、押し間違いは必ず起きる。
+ * 「品薄」のつもりが「休業」だった、を訂正できないのは実害がある。
+ *
+ * 取り消せるのは投稿した本人だけ。他人の報告を消せると、
+ * 正しい情報を消す手段になる。署名付き匿名IDで判定する。
+ * 行は消さず withdrawn_at を立てる（履歴は残す設計を変えない）。
+ */
+export async function withdrawObservation(
+  id: string,
+  reporterToken: string
+): Promise<{ spotId: string } | null> {
+  const rows = await query<{ spot_id: string }>(
+    `UPDATE observations SET withdrawn_at = now()
+     WHERE id = $1 AND reporter_token = $2 AND withdrawn_at IS NULL
+     RETURNING spot_id`,
+    [id, reporterToken]
+  );
+  return rows[0] ? { spotId: rows[0].spot_id } : null;
+}
+
+/** 自分がこの端末から出した報告。訂正のために辿れるようにする */
+export async function myObservations(reporterToken: string, limit = 30) {
+  return query<{
+    id: string;
+    spot_id: string;
+    spot_name: string;
+    category: string;
+    status: string;
+    note: string | null;
+    observed_at: string | Date;
+    withdrawn_at: string | Date | null;
+  }>(
+    `SELECT o.id, o.spot_id, s.name AS spot_name, s.category,
+            o.status, o.note, o.observed_at, o.withdrawn_at
+     FROM observations o JOIN spots s ON s.id = o.spot_id
+     WHERE o.reporter_token = $1 AND NOT o.is_hidden
+     ORDER BY o.created_at DESC LIMIT $2`,
+    [reporterToken, limit]
+  );
 }

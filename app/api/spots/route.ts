@@ -25,10 +25,11 @@ export async function GET(req: Request) {
   const validLoc =
     Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 
-  // hazard を渡し忘れると、位置情報で取り直した瞬間に絞り込みが外れる。
-  // 「距離順にしたら洪水非対応の避難場所が混ざる」という最悪の形になるので、
-  // サーバ描画と同じ条件を必ず通す。
-  const { mode, hazard } = await getMode();
+  // 災害種別は利用者が選ぶ。渡し忘れると位置情報で取り直した瞬間に
+  // 絞り込みが外れ、「距離順にしたら洪水非対応の避難場所が混ざる」
+  // という最悪の形になる。サーバ描画と同じ条件を必ず通す。
+  const hazard = url.searchParams.get('hz') || null;
+  const { mode } = await getMode();
   const spots = await findSpots({
     mode,
     categories,

@@ -726,3 +726,16 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   margin-top: 3px;
   line-height: 1.4;
 }
+
+/* 災害種別が未選択のときの警告。
+   控えめな案内では選ばれず、8割が使えない避難場所を見せ続けることになる。
+   ここは配色の穏やかさより、選ばせることを優先する。 */
+.hazard-warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 10px 0 4px;
+  font-size: 14px;
+  line-height: 1.7;
+}

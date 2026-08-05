@@ -63,19 +63,19 @@ export default async function Home({
 }) {
   const { cat, muni, q, hz } = await searchParams;
   const query = (q ?? '').trim().slice(0, 40);
-  const { mode, hazard: adminHazard } = await getMode();
+  const { mode } = await getMode();
 
   /*
-   * 災害種別は管理者が設定できるが、それだけに頼らない。
-   *   - 当日、運営者がモード切替はしても種別の設定を忘れることはある
-   *   - 運営者自身が被災している、対応前、ということもある
-   *   - 複合災害では管理者は「指定しない」にせざるを得ない
-   * 利用者が上書きできるようにしておく。URLに持たせるので共有もできる。
-   * 平時にも効く。「うちの近くの洪水対応の避難場所はどこか」は備えそのもの。
+   * 災害種別は利用者が選ぶ。運営者は設定しない。
+   *
+   * 豪雨でも、ある地区は洪水、別の地区は土砂災害、また別は内水氾濫。
+   * 全体に1つの種別を設定しても、その人の状況に合っているとは限らない。
+   * 本人が自分の状況で選ぶほうが正確で、運営者の負担も1つ減る。
+   *
+   * ただし既定を「すべて」にすると、8割が使えない避難場所という元の問題に戻る。
+   * 選択を目立たせ、選ぶまで警告を出し続ける。URLに載るので共有もできる。
    */
-  const userHazard = hz && HAZARDS.some((h) => h.id === hz) ? hz : null;
-  const clearedByUser = hz === 'all';
-  const hazard = clearedByUser ? null : (userHazard ?? adminHazard);
+  const hazard = hz && hz !== 'all' && HAZARDS.some((h) => h.id === hz) ? hz : null;
   const cats = categoriesForMode(mode);
 
   const selected = cat && cats.some((c) => c.id === cat) ? cat : null;
@@ -253,12 +253,17 @@ export default async function Home({
             <p className="hazard-filter">
               <strong>{hazardLabel(hazard)}に対応する避難場所</strong>だけを表示しています。
               対応していない場所は、この災害では安全とは限らないため出していません。
-              {adminHazard === hazard && !userHazard && '（いま起きている災害として設定されています）'}
             </p>
           ) : (
-            <p className="sub" style={{ margin: '6px 0 0' }}>
-              災害の種類を選ぶと、その災害に対応する避難場所だけを表示します。
-              <strong>地震向けに指定された場所は、豪雨では水が来ることがあります。</strong>
+            /*
+             * 選ぶまで警告を出し続ける。控えめな案内では選ばれず、
+             * 8割が使えない避難場所を見せ続けることになる。
+             */
+            <p className="hazard-warn">
+              <strong>どの災害に備えるかを選んでください。</strong>
+              いまは対応災害を問わず全て表示しています。
+              <strong>地震向けに指定された場所は、豪雨では水が来ます。</strong>
+              同じ学校でも「体育館」は洪水対応、「グラウンド」は地震のみ、ということがあります。
             </p>
           )}
         </>

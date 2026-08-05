@@ -1,0 +1,51 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # CIが通ったときだけ。壊れたものを本番に運ばない。
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: SSH鍵を用意
+        run: |
+          install -d -m 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: デプロイ
+        # 鍵は authorized_keys の command= で deploy-remote.sh に固定してある。
+        # ここで何を渡してもそのスクリプトしか動かない（鍵が漏れてもシェルは取れない）。
+        run: |
+          ssh -o BatchMode=yes \
+            deploy-yui@${{ secrets.DEPLOY_HOST }} 2>&1 | tee deploy.log
+          tail -1 deploy.log | grep -q "完了" || exit 1
+
+      - name: 外部から到達できるか
+        run: |
+          for p in / /notices /robots.txt; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://yui-yamagata.com$p")
+            echo "  $p -> $code"
+            [ "$code" = "200" ] || exit 1
+          done
+
+      - name: 失敗したら記録を残す
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log
+          path: deploy.log
+          if-no-files-found: ignore

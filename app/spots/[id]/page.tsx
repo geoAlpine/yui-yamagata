@@ -4,6 +4,7 @@ import { getSpot, getObservations } from '@/lib/queries';
 import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
 import ReportAbuse from '@/components/ReportAbuse';
+import { googleMapsUrl, googleDirectionsUrl } from '@/lib/external';
 
 export const revalidate = 60;
 
@@ -91,6 +92,23 @@ export default async function SpotPage({
             今の状況を報告する
           </Link>
         </div>
+      </div>
+
+      {/*
+        平時の営業時間や混雑はGoogleのほうが正確。張り合わずに送り出す。
+        うちが持つのは「住民が今見た状況」だけで、それは上のカードに出ている。
+      */}
+      <div className="external">
+        <a href={googleDirectionsUrl(spot.lat, spot.lng)} target="_blank" rel="noopener noreferrer">
+          ここへの経路を調べる
+        </a>
+        <a href={googleMapsUrl(spot.lat, spot.lng)} target="_blank" rel="noopener noreferrer">
+          Googleで営業時間などを見る
+        </a>
+        <p className="sub">
+          営業時間や定休日はGoogleのほうが正確です。
+          このページに出ているのは、住民が実際に見た「いまの状況」だけです。
+        </p>
       </div>
 
       {/*

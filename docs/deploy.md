@@ -127,6 +127,7 @@ WantedBy=multi-user.target
 | **nginx 設定** | `apply-uploads.sh` 等で明示的に適用 | `location` を足す変更をしたとき |
 | **ファイル配置** | 保存先ディレクトリの作成と所有者設定 | 新しい保存先を使うとき |
 | **systemd unit** | `apply-unit.sh` で `ReadWritePaths` 等を反映 | unit を変更したとき |
+| **cron** | `/etc/cron.d/` へ配置（immutable の解除が要る） | 定期処理を足したとき |
 
 **自動デプロイが nginx と systemd を触らないのは意図的。**
 CDがそれらを書き換えると、失敗したときに商用9サイトを巻き込む。
@@ -164,6 +165,7 @@ gh run list --repo geoAlpine/yui-yamagata --workflow Deploy --limit 1
 - [ ] `deploy-yui` ユーザーを作り、sudo グループには**入れていない**
 - [ ] `set_real_ip_from` を設定した
 - [ ] バックアップの逃がし先を決めた（同じVPS内はバックアップにならない）
+- [ ] 写真を消す cron を登録した（画面の「14日で消えます」は約束）
 
 ### 本番に写真機能を入れるとき
 
@@ -172,7 +174,24 @@ gh run list --repo geoAlpine/yui-yamagata --workflow Deploy --limit 1
 ssh -t vps sudo ./apply-uploads.sh production   # nginx に /uploads/
 ssh -t vps sudo ./fix-uploads.sh production     # 保存先をツリー外へ
 ssh -t vps sudo ./apply-unit.sh production      # ReadWritePaths
+ssh -t vps sudo ./apply-purge-cron.sh           # 14日で消す cron
 ```
+
+**最後の1つを飛ばすと、写真が永久に残る。**
+詳細ページには「14日で自動的に消えます」と表示される。
+利用者への約束なので、実装がなければ嘘になる。
+
+`/etc/cron.d` には immutable 属性が付いている。手で置くなら:
+
+```bash
+chattr -i /etc/cron.d
+install -o root -g root -m 644 deploy/yui-purge.cron /etc/cron.d/yui-purge
+chattr +i /etc/cron.d
+systemctl restart cron
+```
+
+cron は**書式が壊れているとファイル全体を黙って無視する**。
+置いて終わりにせず、`purge-photos.sh <env> --dry` で実際に走ることを見る。
 
 ### 本番にデータを入れるとき
 

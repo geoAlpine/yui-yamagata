@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { categoriesForMode } from '@/lib/categories';
+import { categoriesForMode, hazardLabel } from '@/lib/categories';
 import {
   findSpots, searchSpots, getMode, listMunicipalities, countByCategory, getServerNow,
 } from '@/lib/queries';
@@ -16,7 +16,7 @@ export default async function Home({
 }) {
   const { cat, muni, q } = await searchParams;
   const query = (q ?? '').trim().slice(0, 40);
-  const { mode } = await getMode();
+  const { mode, hazard } = await getMode();
   const cats = categoriesForMode(mode);
 
   const selected = cat && cats.some((c) => c.id === cat) ? cat : null;
@@ -33,6 +33,7 @@ export default async function Home({
         mode,
         categories: targetCategories,
         municipality: selectedMuni,
+        hazard,
         limit: 50,
       });
   const serverNow = await getServerNow();
@@ -149,6 +150,17 @@ export default async function Home({
           ))}
         </nav>
         </div>
+      )}
+
+      {/*
+        絞り込んでいることは必ず伝える。黙って隠すと
+        「近くの避難場所が出ない」と誤解される。
+      */}
+      {hazard && (
+        <p className="hazard-filter">
+          <strong>{hazardLabel(hazard)}に対応する避難場所</strong>だけを表示しています。
+          対応していない場所は、この災害では安全とは限らないため出していません。
+        </p>
       )}
 
       <SpotList

@@ -705,3 +705,16 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   align-items: center;
   flex-wrap: wrap;
 }
+
+/* 災害種別で絞り込んでいることの明示。
+   黙って隠すと「近くの避難場所が出ない」と誤解される。 */
+.hazard-filter {
+  background: var(--accent-bg);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 11px 14px;
+  margin: 10px 0 4px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.hazard-filter strong { color: var(--accent); }

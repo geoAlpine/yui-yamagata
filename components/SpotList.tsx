@@ -172,7 +172,7 @@ export default function SpotList({
                 ? '位置情報が使えないため、新しい順で表示しています'
                 : locState === 'unavailable'
                   ? 'この端末では位置情報が使えません'
-                  : '新しい順で表示しています'}
+                  : '新しい順で表示しています。近い順にすると探しやすくなります'}
             </span>
             {locState !== 'unavailable' && (
               <button onClick={requestLocation} disabled={locState === 'asking'}>

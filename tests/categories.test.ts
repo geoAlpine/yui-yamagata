@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CATEGORIES, categoriesForMode, getCategory, getStatus, attrsForStatus,
+  HAZARDS, hazardLabel,
 } from '../lib/categories';
 import { NOTICE_KINDS, getNoticeKind } from '../lib/notices';
 
@@ -132,4 +133,20 @@ test('お知らせの種別には必ず注意書きがある', () => {
 test('ボランティア募集は公式窓口へ誘導している', () => {
   // 個人の呼びかけで現地に人が殺到すると二次被害になる
   assert.ok(getNoticeKind('volunteer')?.officialLink?.href);
+});
+
+test('災害種別のIDが国土地理院のCSV列と対応している', () => {
+  // 取り込みスクリプト（scripts/import_shelters.mjs）の HAZARD_COLUMNS と
+  // ここが食い違うと、絞り込みが静かに空振りする。
+  const ids = HAZARDS.map((h) => h.id);
+  for (const need of ['flood', 'landslide', 'earthquake', 'tsunami']) {
+    assert.ok(ids.includes(need as never), `${need} が無い`);
+  }
+  assert.equal(new Set(ids).size, ids.length, 'IDが重複');
+  for (const h of HAZARDS) assert.ok(h.label.length > 0, `${h.id}: ラベルが無い`);
+});
+
+test('hazardLabel は未知のIDでも落ちない', () => {
+  assert.equal(hazardLabel('flood'), '洪水');
+  assert.equal(hazardLabel('no_such'), 'no_such');
 });

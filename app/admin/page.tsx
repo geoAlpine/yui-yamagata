@@ -2,7 +2,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { isAdmin, checkPassword, issueAdminCookie, ADMIN_COOKIE } from '@/lib/admin';
-import { getCategory, getStatus } from '@/lib/categories';
+import { getCategory, getStatus, HAZARDS, hazardLabel } from '@/lib/categories';
 import {
   getMode, setMode, listOpenReports, resolveReport, hideObservation,
   listPendingNotices, verifyNotice, hideNotice,
@@ -39,7 +39,9 @@ async function actSetMode(formData: FormData) {
   await guard();
   const mode = String(formData.get('mode')) === 'disaster' ? 'disaster' : 'standby';
   const notice = String(formData.get('notice') ?? '').trim().slice(0, 200) || null;
-  await setMode(mode, notice);
+  const h = String(formData.get('hazard') ?? '');
+  const hazard = HAZARDS.some((x) => x.id === h) ? h : null;
+  await setMode(mode, notice, hazard);
   revalidatePath('/');
   revalidatePath('/admin');
 }
@@ -99,7 +101,7 @@ export default async function AdminPage({
     );
   }
 
-  const [{ mode, notice }, reports, notices] = await Promise.all([
+  const [{ mode, notice, hazard }, reports, notices] = await Promise.all([
     getMode(), listOpenReports(), listPendingNotices(),
   ]);
 
@@ -117,7 +119,10 @@ export default async function AdminPage({
       </p>
       <form action={actSetMode} className="card">
         <div className="field">
-          <label>現在: <strong>{mode === 'disaster' ? '災害モード' : '平時（そなえ）'}</strong></label>
+          <label>
+            現在: <strong>{mode === 'disaster' ? '災害モード' : '平時（そなえ）'}</strong>
+            {hazard && <>／ 災害種別: <strong>{hazardLabel(hazard)}</strong></>}
+          </label>
           <div className="chips" style={{ marginTop: 8 }}>
             <label className="chip">
               <input type="radio" name="mode" value="standby" defaultChecked={mode === 'standby'} /> 平時（そなえ）
@@ -126,6 +131,26 @@ export default async function AdminPage({
               <input type="radio" name="mode" value="disaster" defaultChecked={mode === 'disaster'} /> 災害
             </label>
           </div>
+        </div>
+        {/*
+          いま起きている災害の種別。指定すると、対応しない避難場所を出さなくなる。
+          山形駅周辺で調べたところ、近い順50件の緊急避難場所16件のうち
+          洪水に対応するのは5件だけだった。さらに「山形西高等学校（体育館）」は
+          洪水対応だが「（グラウンド）」は地震のみ。同じ学校で50m差。
+          豪雨時にグラウンドへ誘導すると、水が来る場所へ人を送ることになる。
+        */}
+        <div className="field">
+          <label htmlFor="hazard">いま起きている災害</label>
+          <select id="hazard" name="hazard" defaultValue={hazard ?? ''}>
+            <option value="">指定しない（避難場所を絞り込まない）</option>
+            {HAZARDS.map((h) => (
+              <option key={h.id} value={h.id}>{h.label}</option>
+            ))}
+          </select>
+          <p className="sub">
+            指定すると、その災害に対応していない緊急避難場所を表示しません。
+            豪雨なら「洪水」。複合災害や種別が定まらないときは指定しないでください。
+          </p>
         </div>
         <div className="field">
           <label htmlFor="notice">全ページ上部の告知（空で消す）</label>

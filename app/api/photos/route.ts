@@ -54,22 +54,26 @@ export async function POST(req: Request) {
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
-  // 拡張子ではなく中身で判定する。WebP は "RIFF....WEBP"
+
+  // 拡張子ではなく中身で判定する。
+  // WebP は "RIFF....WEBP"、JPEG は FF D8 FF。
+  // JPEGも受けるのは、canvas.toBlob の image/webp に対応していない端末
+  // （古いSafari）があり、そこでは JPEG にせざるを得ないため。
   const isWebp =
     buf.length > 12 &&
     buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
     buf.subarray(8, 12).toString('ascii') === 'WEBP';
-  if (!isWebp) {
-    return NextResponse.json(
-      { error: '対応していない形式です' },
-      { status: 415 }
-    );
+  const isJpeg =
+    buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  if (!isWebp && !isJpeg) {
+    return NextResponse.json({ error: '対応していない形式です' }, { status: 415 });
   }
+  const ext = isWebp ? 'webp' : 'jpg';
 
   // 日付で切ると、期限切れの削除がディレクトリ単位で済む
   const now = new Date();
   const dir = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const name = `${randomUUID()}.webp`;
+  const name = `${randomUUID()}.${ext}`;
   const abs = path.join(uploadRoot(), dir, name);
 
   await mkdir(path.dirname(abs), { recursive: true });

@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   // 任意の文字列を通すと、別のファイルを指させる余地ができる。
   const photoPath =
     typeof body.photoPath === 'string' &&
-    /^\d{4}\/\d{2}\/[0-9a-f-]{36}\.webp$/.test(body.photoPath)
+    /^\d{4}\/\d{2}\/[0-9a-f-]{36}\.(webp|jpg)$/.test(body.photoPath)
       ? body.photoPath
       : null;
 

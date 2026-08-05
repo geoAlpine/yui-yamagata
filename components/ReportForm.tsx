@@ -49,10 +49,10 @@ export default function ReportForm({
     setPhotoBusy(true);
     setError(null);
     try {
-      const blob = await compressImage(f);
-      if (!blob) { setError('この画像は使えませんでした'); return; }
+      const r = await compressImage(f);
+      if (!r.ok) { setError(r.reason); return; }
       if (photo) URL.revokeObjectURL(photo.url);
-      setPhoto({ blob, url: URL.createObjectURL(blob) });
+      setPhoto({ blob: r.blob, url: URL.createObjectURL(r.blob) });
     } finally {
       setPhotoBusy(false);
     }
@@ -73,7 +73,7 @@ export default function ReportForm({
       let photoBytes: number | null = null;
       if (photo) {
         const fd = new FormData();
-        fd.append('photo', photo.blob, 'photo.webp');
+        fd.append('photo', photo.blob, 'photo');
         const pr = await fetch('/api/photos', {
           method: 'POST', body: fd, credentials: 'same-origin',
         });

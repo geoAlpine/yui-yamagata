@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { categoriesForMode, hazardLabel } from '@/lib/categories';
+import { categoriesForMode, hazardLabel, HAZARDS } from '@/lib/categories';
 import {
   findSpots, searchSpots, getMode, listMunicipalities, countByCategory, getServerNow,
 } from '@/lib/queries';
@@ -12,17 +12,31 @@ export const revalidate = 60;
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ cat?: string; muni?: string; q?: string }>;
+  searchParams: Promise<{ cat?: string; muni?: string; q?: string; hz?: string }>;
 }) {
-  const { cat, muni, q } = await searchParams;
+  const { cat, muni, q, hz } = await searchParams;
   const query = (q ?? '').trim().slice(0, 40);
-  const { mode, hazard } = await getMode();
+  const { mode, hazard: adminHazard } = await getMode();
+
+  /*
+   * 災害種別は管理者が設定できるが、それだけに頼らない。
+   *   - 当日、運営者がモード切替はしても種別の設定を忘れることはある
+   *   - 運営者自身が被災している、対応前、ということもある
+   *   - 複合災害では管理者は「指定しない」にせざるを得ない
+   * 利用者が上書きできるようにしておく。URLに持たせるので共有もできる。
+   * 平時にも効く。「うちの近くの洪水対応の避難場所はどこか」は備えそのもの。
+   */
+  const userHazard = hz && HAZARDS.some((h) => h.id === hz) ? hz : null;
+  const clearedByUser = hz === 'all';
+  const hazard = clearedByUser ? null : (userHazard ?? adminHazard);
   const cats = categoriesForMode(mode);
 
   const selected = cat && cats.some((c) => c.id === cat) ? cat : null;
   const targetCategories = selected ? [selected] : cats.map((c) => c.id);
 
   const counts = await countByCategory(cats.map((c) => c.id));
+  // 避難場所を表示しうる場面でだけ、災害種別の選択を出す
+  const catsHaveShelter = targetCategories.includes('evacuation');
   const municipalities = await listMunicipalities(targetCategories);
   const selectedMuni = muni && municipalities.includes(muni) ? muni : null;
 
@@ -38,6 +52,16 @@ export default async function Home({
       });
   const serverNow = await getServerNow();
 
+  // 災害種別の切り替えリンク。'all' は「絞り込まない」を明示する値
+  const hzUrl = (id: string) => {
+    const p = new URLSearchParams();
+    if (selected) p.set('cat', selected);
+    if (selectedMuni) p.set('muni', selectedMuni);
+    if (query) p.set('q', query);
+    p.set('hz', id);
+    return `/?${p.toString()}`;
+  };
+
   const qs = (over: { cat?: string | null; muni?: string | null }) => {
     const p = new URLSearchParams();
     const c = over.cat === undefined ? selected : over.cat;
@@ -45,6 +69,7 @@ export default async function Home({
     if (c) p.set('cat', c);
     if (m) p.set('muni', m);
     if (query) p.set('q', query);
+    if (hz) p.set('hz', hz);
     const s = p.toString();
     return s ? `/?${s}` : '/';
   };
@@ -153,14 +178,43 @@ export default async function Home({
       )}
 
       {/*
-        絞り込んでいることは必ず伝える。黙って隠すと
-        「近くの避難場所が出ない」と誤解される。
+        災害種別の選択。
+        管理者が設定していればそれが既定になり、利用者はここで上書きできる。
+        「避難場所だから安全」は成り立たない。地震向けに指定された場所は
+        豪雨では水が来る。どの災害に備えるかを選べることが要る。
       */}
-      {hazard && (
-        <p className="hazard-filter">
-          <strong>{hazardLabel(hazard)}に対応する避難場所</strong>だけを表示しています。
-          対応していない場所は、この災害では安全とは限らないため出していません。
-        </p>
+      {(hazard || mode === 'disaster' || catsHaveShelter) && (
+        <>
+          <div className="chiprow">
+            <nav className="cats muni" aria-label="災害の種類">
+              <Link className={`cat${hazard ? '' : ' on'}`} href={hzUrl('all')}>
+                すべて
+              </Link>
+              {HAZARDS.map((h) => (
+                <Link
+                  key={h.id}
+                  className={`cat${hazard === h.id ? ' on' : ''}`}
+                  href={hzUrl(h.id)}
+                >
+                  {h.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          {hazard ? (
+            <p className="hazard-filter">
+              <strong>{hazardLabel(hazard)}に対応する避難場所</strong>だけを表示しています。
+              対応していない場所は、この災害では安全とは限らないため出していません。
+              {adminHazard === hazard && !userHazard && '（いま起きている災害として設定されています）'}
+            </p>
+          ) : (
+            <p className="sub" style={{ margin: '6px 0 0' }}>
+              災害の種類を選ぶと、その災害に対応する避難場所だけを表示します。
+              <strong>地震向けに指定された場所は、豪雨では水が来ることがあります。</strong>
+            </p>
+          )}
+        </>
       )}
 
       <SpotList

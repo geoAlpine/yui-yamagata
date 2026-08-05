@@ -87,6 +87,14 @@ export default function SpotCard({
         )}
       </div>
 
+      {/*
+        住所を名前の直下に出す。
+        OSM由来のスポットは名前がブランド名だけのことが多く、
+        「エネオス」が一覧に4つ並んで区別できなかった。
+        町名まで出せば「さっき見たスタンド」を探せる。
+      */}
+      {spot.address && <div className="addr">{spot.address}</div>}
+
       {/* 種類は絵文字ではなく短い日本語のバッジで示す */}
       <div className="statusline">
         {cat && <span className="cat-badge">{cat.short}</span>}

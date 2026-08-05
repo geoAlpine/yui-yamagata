@@ -718,3 +718,11 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   line-height: 1.65;
 }
 .hazard-filter strong { color: var(--accent); }
+/* 住所。名前だけでは区別がつかないスポットが多いので、名前の直下に置く。
+   「エネオス」が4つ並んだときに、これが唯一の手がかりになる。 */
+.addr {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}

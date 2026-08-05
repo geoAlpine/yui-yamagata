@@ -773,3 +773,27 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   font-size: 15px;
   font-family: inherit;
 }
+
+/* 報告する場所を選ぶ一覧。状態や鮮度は出さない。
+   ここでの目的は「どの場所か」を選ぶことだけで、余計なものがあると迷う。 */
+.picker { list-style: none; padding: 0; margin: 0; }
+.picker li { border-bottom: 1px solid var(--border); }
+.picker a {
+  display: block;
+  padding: 13px 4px;
+  min-height: var(--tap);
+  text-decoration: none;
+  color: var(--text);
+}
+.picker a:active { background: var(--surface-2); }
+.pick-name { display: block; font-size: 16px; font-weight: 700; line-height: 1.4; }
+.pick-addr { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+.pick-meta { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+
+/* カード下部の報告ボタン。
+   災害時にこのサイトの価値を作るのは投稿なのに、
+   幅72pxの小さなボタンがカードの一番下にあるだけだった。
+   「まだ情報がありません」の場合は全幅にして、押す場所だと分かるようにする。 */
+.confirm.invite { flex-direction: column; align-items: stretch; gap: 8px; }
+.confirm.invite .q { flex: none; text-align: center; }
+.confirm.invite .btn-sm { width: 100%; min-height: 48px; }

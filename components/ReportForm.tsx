@@ -132,20 +132,47 @@ export default function ReportForm({
         ))}
       </div>
 
-      {error && <p className="err">{error}</p>}
-
-      {/* 送信は画面下に貼り付ける。片手で親指が届く位置に置く */}
-      <div className="sticky-cta">
-        <button
-          className="btn primary block"
-          onClick={submit}
-          disabled={!status || sending}
-        >
-          {sending ? '送信中…' : '報告する'}
-        </button>
+      <div className="field">
+        <label htmlFor="photo">写真（任意）</label>
+        {photo ? (
+          <div className="photo-pick">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photo.url} alt="選んだ写真" />
+            <button
+              type="button"
+              className="btn-sm"
+              onClick={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }}
+            >
+              取り消す
+            </button>
+          </div>
+        ) : (
+          <input
+            id="photo"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            disabled={photoBusy}
+            onChange={(e) => pickPhoto(e.target.files?.[0])}
+          />
+        )}
+        {photoBusy && <p className="sub">読み込んでいます…</p>}
+        {/*
+          顔とナンバープレートは技術では消せない。
+          投稿前に伝えるしかない。ここは目立たせる。
+        */}
+        <p className="spot-caution">
+          <strong>人の顔や車のナンバーが写らないようにしてください。</strong>
+          撮影場所などの情報（EXIF）は送信前に自動で消えますが、
+          写っているものは消せません。誰でも見られる場所に公開されます。
+        </p>
       </div>
 
-      {/* ここから下は任意。入力せずに送信できることを最優先にする */}
+
+      {/*
+        ここから下は任意。入力せずに送信できることを最優先にする。
+        写真は折りたたみの外に出した。中に入れると存在に気づかれない。
+      */}
       <details className="optional">
         <summary>詳しく伝える（任意）</summary>
 
@@ -197,42 +224,6 @@ export default function ReportForm({
         ))}
 
         <div className="field">
-          <label htmlFor="photo">写真（任意）</label>
-          {photo ? (
-            <div className="photo-pick">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.url} alt="選んだ写真" />
-              <button
-                type="button"
-                className="btn-sm"
-                onClick={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }}
-              >
-                取り消す
-              </button>
-            </div>
-          ) : (
-            <input
-              id="photo"
-              type="file"
-              accept="image/*"
-              capture="environment"
-              disabled={photoBusy}
-              onChange={(e) => pickPhoto(e.target.files?.[0])}
-            />
-          )}
-          {photoBusy && <p className="sub">読み込んでいます…</p>}
-          {/*
-            顔とナンバープレートは技術では消せない。
-            投稿前に伝えるしかない。ここは目立たせる。
-          */}
-          <p className="spot-caution">
-            <strong>人の顔や車のナンバーが写らないようにしてください。</strong>
-            撮影場所などの情報（EXIF）は送信前に自動で消えますが、
-            写っているものは消せません。誰でも見られる場所に公開されます。
-          </p>
-        </div>
-
-        <div className="field">
           <label htmlFor="note">ひとこと（{note.length}/80）</label>
           <textarea
             id="note"
@@ -248,6 +239,25 @@ export default function ReportForm({
       <p className="sub" style={{ marginTop: 20 }}>
         投稿は匿名です。個人が特定できる情報は書かないでください。
       </p>
+
+      {error && <p className="err">{error}</p>}
+
+      {/*
+        送信は必ず最後に置く。
+        当初は「入力せず送信できる」を優先して折りたたみの前に置いたが、
+        折りたたみを開くと下にコンテンツが伸び、ボタンが画面の中ほどに
+        貼り付いて分かりにくくなった。
+        末尾に置いたうえで画面下に固定すれば、どちらも満たせる。
+      */}
+      <div className="sticky-cta">
+        <button
+          className="btn primary block"
+          onClick={submit}
+          disabled={!status || sending}
+        >
+          {sending ? '送信中…' : '報告する'}
+        </button>
+      </div>
     </>
   );
 }

@@ -39,7 +39,20 @@ const TABS = [
       </Icon>
     ),
     match: (p: string) =>
-      p === '/' || (p.startsWith('/spots') && p !== '/spots/new') || p.startsWith('/report'),
+      p === '/' || (p.startsWith('/spots') && p !== '/spots/new'),
+  },
+  {
+    // 災害時にこのサイトの価値を作るのは投稿。
+    // 一覧カード下部の小さなボタンからしか入れないのは、入口として弱すぎた。
+    href: '/report',
+    label: '報告する',
+    icon: (
+      <Icon>
+        <path d="M12 4.2 20 19H4z" />
+        <path d="M12 10v4M12 16.6v.1" />
+      </Icon>
+    ),
+    match: (p: string) => p.startsWith('/report') || p === '/spots/new',
   },
   {
     href: '/notices',
@@ -61,17 +74,6 @@ const TABS = [
       </Icon>
     ),
     match: (p: string) => p === '/mine',
-  },
-  {
-    href: '/spots/new',
-    label: '場所を追加',
-    icon: (
-      <Icon>
-        <circle cx="12" cy="12" r="8.3" />
-        <path d="M12 8.4v7.2M8.4 12h7.2" />
-      </Icon>
-    ),
-    match: (p: string) => p === '/spots/new',
   },
 ];
 

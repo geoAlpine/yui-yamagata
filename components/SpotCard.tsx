@@ -193,10 +193,10 @@ export default function SpotCard({
       )}
 
       {!hasObs && (
-        <div className="confirm">
-          <span className="q">今の状況を知っていますか？</span>
+        <div className="confirm invite">
+          <span className="q">まだ誰も報告していません</span>
           <Link className="btn-sm" href={`/report/${spot.id}`}>
-            報告する
+            今の状況を報告する
           </Link>
         </div>
       )}

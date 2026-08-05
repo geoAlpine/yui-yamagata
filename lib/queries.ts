@@ -8,6 +8,8 @@ export interface SpotRow {
   address: string | null;
   is_priority: boolean;
   note: string | null;
+  /** 指定緊急避難場所が対応する災害種別。地震向けが洪水で使えるとは限らない */
+  hazards: string[] | null;
   lat: number;
   lng: number;
   distance_m: number | null;
@@ -48,7 +50,7 @@ export async function findSpots(opts: {
 
   const sql = `
     SELECT
-      s.id, s.name, s.category, s.address, s.is_priority, s.note,
+      s.id, s.name, s.category, s.address, s.is_priority, s.note, s.hazards,
       ST_Y(s.location::geometry) AS lat,
       ST_X(s.location::geometry) AS lng,
       ${hasLoc
@@ -123,10 +125,11 @@ export async function getSpot(id: string) {
     address: string | null;
     is_priority: boolean;
     note: string | null;
+    hazards: string[] | null;
     lat: number;
     lng: number;
   }>(
-    `SELECT id, name, category, address, is_priority, note,
+    `SELECT id, name, category, address, is_priority, note, hazards,
             ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng
      FROM spots WHERE id = $1 AND is_active`,
     [id]

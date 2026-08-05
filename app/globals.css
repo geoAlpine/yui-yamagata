@@ -644,3 +644,23 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   align-items: center;
 }
 .external .sub { margin: 0; }
+
+/* 指定緊急避難場所が対応する災害種別。
+   地震向けの場所が洪水で使えるとは限らない。見落とされない位置に置く。 */
+.hazards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-top: 8px;
+}
+.hazards-label { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.hazard {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  white-space: nowrap;
+}

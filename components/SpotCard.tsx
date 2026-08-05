@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
+import { getCategory, getStatus, attrsForStatus, hazardLabel } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
 import type { SpotRow } from '@/lib/queries';
 
@@ -112,6 +112,25 @@ export default function SpotCard({
       )}
 
       {showStatus && spot.obs_note && <div className="note">{spot.obs_note}</div>}
+
+      {/*
+        指定緊急避難場所は災害種別ごとに指定されている。
+        地震向けの場所が洪水で使えるとは限らない。
+        「避難場所だから安全」という思い込みは命に関わるので必ず出す。
+      */}
+      {spot.hazards && spot.hazards.length > 0 && (
+        <div className="hazards">
+          <span className="hazards-label">対応する災害</span>
+          {spot.hazards.map((h) => (
+            <span key={h} className="hazard">{hazardLabel(h)}</span>
+          ))}
+        </div>
+      )}
+      {spot.category === 'evacuation' && spot.hazards?.length === 0 && (
+        <p className="spot-caution">
+          対応する災害種別が登録されていません。市町村にご確認ください。
+        </p>
+      )}
 
       {/*
         井戸水は飲用可否が不明なことがあり、健康被害に直結する。

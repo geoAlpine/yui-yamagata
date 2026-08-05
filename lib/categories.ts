@@ -26,6 +26,30 @@
 
 export type Mode = 'standby' | 'disaster';
 
+/**
+ * 指定緊急避難場所が対応する災害種別。
+ *
+ * 地震向けに指定された場所が洪水では使えないことがある。
+ * 「避難場所だから安全」ではなく「この災害に対して安全」が正しい。
+ * 混同は命に関わるので、必ず種別を出す。
+ */
+export const HAZARDS = [
+  { id: 'flood',        label: '洪水' },
+  { id: 'landslide',    label: '土砂災害' },
+  { id: 'storm_surge',  label: '高潮' },
+  { id: 'earthquake',   label: '地震' },
+  { id: 'tsunami',      label: '津波' },
+  { id: 'fire',         label: '大規模火事' },
+  { id: 'inland_flood', label: '内水氾濫' },
+  { id: 'volcano',      label: '火山' },
+] as const;
+
+export type HazardId = (typeof HAZARDS)[number]['id'];
+
+export function hazardLabel(id: string): string {
+  return HAZARDS.find((h) => h.id === id)?.label ?? id;
+}
+
 /** 状態の深刻度。表示色と並び順に使う */
 export type Severity = 'good' | 'warn' | 'bad' | 'unknown';
 
@@ -87,13 +111,46 @@ const WAIT_MINUTES: AttrDef = {
 
 export const CATEGORIES: CategoryDef[] = [
   {
+    // 発災時に緊急で逃げる場所。災害種別ごとに指定される。
+    // 公式は「指定されている」ことしか言えない。「今開いているか」は住民の目撃が先行する。
+    id: 'evacuation',
+    label: '緊急避難場所',
+    short: '避難場所',
+    emptyReason: 'needsReport',
+    ttlMinutes: 720,
+    order: 0,
+    statuses: [
+      { id: 'open', label: '開設されている', severity: 'good' },
+      { id: 'crowded', label: '開設・混雑', severity: 'warn' },
+      { id: 'closed', label: '開設されていない', severity: 'bad' },
+      { id: 'unusable', label: '被災して使えない', severity: 'bad' },
+    ],
+    attrs: [{ id: 'detail', label: '状況', type: 'text' }],
+  },
+  {
+    // 災害後に滞在する場所。緊急避難場所とは別物。
+    id: 'shelter',
+    label: '避難所（滞在）',
+    short: '避難所',
+    emptyReason: 'needsReport',
+    ttlMinutes: 720,
+    order: 1,
+    statuses: [
+      { id: 'open', label: '開設されている', severity: 'good' },
+      { id: 'crowded', label: '開設・混雑', severity: 'warn' },
+      { id: 'closed', label: '開設されていない', severity: 'bad' },
+      { id: 'unusable', label: '被災して使えない', severity: 'bad' },
+    ],
+    attrs: [{ id: 'detail', label: '状況', type: 'text' }],
+  },
+  {
     id: 'gas',
     label: 'ガソリンスタンド',
     short: 'ガソリン',
     emptyReason: 'needsReport',
     // 最も腐りやすい。行列は30分で変わるが、2時間を上限とする
     ttlMinutes: 120,
-    order: 1,
+    order: 3,
     statuses: [
       { id: 'available', label: '給油できる', severity: 'good' },
       { id: 'limited', label: '数量制限あり', severity: 'warn' },
@@ -122,7 +179,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '買い物',
     emptyReason: 'needsReport',
     ttlMinutes: 360, // 6時間
-    order: 2,
+    order: 4,
     statuses: [
       { id: 'open', label: '営業中', severity: 'good' },
       { id: 'limited', label: '一部営業・品薄', severity: 'warn' },
@@ -139,7 +196,7 @@ export const CATEGORIES: CategoryDef[] = [
     // 未取り込みの市町村では空になるので、住民が足せることを伝える。
     emptyReason: 'needsReport',
     ttlMinutes: 720, // 12時間
-    order: 3,
+    order: 2,
     statuses: [
       { id: 'active', label: '実施中', severity: 'good' },
       { id: 'scheduled', label: '予定あり', severity: 'warn' },
@@ -176,7 +233,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '物資',
     emptyReason: 'disasterOnly',
     ttlMinutes: 360,
-    order: 4,
+    order: 5,
     statuses: [
       { id: 'active', label: '実施中', severity: 'good' },
       { id: 'scheduled', label: '予定あり', severity: 'warn' },
@@ -190,7 +247,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: 'トイレ・入浴',
     emptyReason: 'needsReport',
     ttlMinutes: 720,
-    order: 5,
+    order: 6,
     statuses: [
       { id: 'available', label: '使える', severity: 'good' },
       { id: 'unavailable', label: '使えない', severity: 'bad' },
@@ -215,7 +272,7 @@ export const CATEGORIES: CategoryDef[] = [
     emptyReason: 'needsReport',
     // 停電の復旧・電源車の移動で状況が変わりやすい
     ttlMinutes: 240,
-    order: 6,
+    order: 7,
     statuses: [
       { id: 'available', label: '充電できる', severity: 'good' },
       { id: 'crowded', label: '混雑・順番待ち', severity: 'warn' },
@@ -241,7 +298,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '通信',
     emptyReason: 'needsReport',
     ttlMinutes: 240,
-    order: 7,
+    order: 8,
     statuses: [
       { id: 'wifi', label: '無料Wi-Fiが使える', severity: 'good' },
       { id: 'online', label: '携帯がつながる', severity: 'good' },
@@ -268,7 +325,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '医療',
     emptyReason: 'needsReport',
     ttlMinutes: 360,
-    order: 8,
+    order: 9,
     statuses: [
       { id: 'open', label: '診療・営業中', severity: 'good' },
       { id: 'limited', label: '一部のみ対応', severity: 'warn' },
@@ -283,7 +340,7 @@ export const CATEGORIES: CategoryDef[] = [
     emptyReason: 'needsReport',
     // 停電でカードが使えず現金が要る場面が必ず来る
     ttlMinutes: 360,
-    order: 9,
+    order: 10,
     statuses: [
       { id: 'available', label: '使える', severity: 'good' },
       { id: 'crowded', label: '行列あり', severity: 'warn' },
@@ -297,7 +354,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '洗濯',
     emptyReason: 'needsReport',
     ttlMinutes: 720,
-    order: 10,
+    order: 11,
     statuses: [
       { id: 'open', label: '使える', severity: 'good' },
       { id: 'crowded', label: '混雑', severity: 'warn' },
@@ -311,7 +368,7 @@ export const CATEGORIES: CategoryDef[] = [
     emptyReason: 'disasterOnly',
     // 水害後の片付けで需要が跳ねる。令和6年7月豪雨では県内で床上浸水427棟
     ttlMinutes: 1440,
-    order: 11,
+    order: 12,
     statuses: [
       { id: 'open', label: '搬入できる', severity: 'good' },
       { id: 'crowded', label: '混雑・待ち時間あり', severity: 'warn' },
@@ -328,7 +385,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: 'ライフライン',
     emptyReason: 'disasterOnly',
     ttlMinutes: 1440, // 24時間
-    order: 12,
+    order: 13,
     statuses: [
       { id: 'outage_power', label: '停電中', severity: 'bad' },
       { id: 'outage_water', label: '断水中', severity: 'bad' },
@@ -341,7 +398,7 @@ export const CATEGORIES: CategoryDef[] = [
     short: '道路',
     emptyReason: 'disasterOnly',
     ttlMinutes: 720,
-    order: 13,
+    order: 14,
     statuses: [
       { id: 'closed', label: '通行止め', severity: 'bad' },
       { id: 'flooded', label: '冠水している', severity: 'bad' },
@@ -366,7 +423,7 @@ export function getCategory(id: string): CategoryDef | undefined {
  * 「今どこが開いてるか」は平時には出さない。Googleのほうが正確なので、
  * 中途半端に出すとかえって信頼を損なう。
  */
-const STANDBY_CATEGORIES = ['water', 'gas', 'toilet', 'medical', 'charge'];
+const STANDBY_CATEGORIES = ['evacuation', 'shelter', 'water', 'gas', 'toilet', 'medical', 'charge'];
 
 export function categoriesForMode(mode: Mode): CategoryDef[] {
   const all = CATEGORIES.sort((a, b) => a.order - b.order);

@@ -156,6 +156,18 @@ export default async function Home({
           <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>{' '}
           のデータを利用しています。© OpenStreetMap contributors（ODbL 1.0）
           <br />
+          避難場所・避難所は{' '}
+          <a href="https://hinanmap.gsi.go.jp/index.html">
+            国土地理院「指定緊急避難場所・指定避難所データ」
+          </a>
+          をもとにしています。
+          <strong>
+            最新でない場合や未掲載の場合があります。最新かつ詳細な状況は必ず市町村にご確認ください。
+          </strong>
+          「指定緊急避難場所」は発災時に緊急で逃げる場所で、
+          <strong>災害種別ごとに指定されています</strong>。
+          「避難所」は災害後に滞在する場所で、別のものです。
+          <br />
           給水所は{' '}
           <a href="https://suidou.yamagata.yamagata.jp/soshiki/2/1315.html">
             山形市上下水道部「拠点給水所マップ」

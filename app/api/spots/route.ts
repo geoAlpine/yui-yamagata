@@ -25,12 +25,16 @@ export async function GET(req: Request) {
   const validLoc =
     Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 
-  const { mode } = await getMode();
+  // hazard を渡し忘れると、位置情報で取り直した瞬間に絞り込みが外れる。
+  // 「距離順にしたら洪水非対応の避難場所が混ざる」という最悪の形になるので、
+  // サーバ描画と同じ条件を必ず通す。
+  const { mode, hazard } = await getMode();
   const spots = await findSpots({
     mode,
     categories,
     lat: validLoc ? lat : undefined,
     lng: validLoc ? lng : undefined,
+    hazard,
     limit: 50,
   });
 

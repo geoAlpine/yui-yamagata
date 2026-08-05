@@ -739,3 +739,37 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
   font-size: 14px;
   line-height: 1.7;
 }
+
+/* 写真。回線が細い状況では読み込み待ちになるので、
+   場所だけ先に確保して本文が飛ばないようにする。 */
+.photo { margin: 12px 0 0; }
+.photo img {
+  width: 100%;
+  max-height: 340px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: block;
+}
+.photo figcaption {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.photo-pick { display: flex; flex-direction: column; gap: 8px; }
+.photo-pick img {
+  width: 100%;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.field input[type="file"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 15px;
+  font-family: inherit;
+}

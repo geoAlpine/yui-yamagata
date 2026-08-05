@@ -183,6 +183,7 @@ export async function listMunicipalities(categories: string[]): Promise<string[]
 export interface ObservationRow {
   id: string;
   status: string;
+  photo_path?: string | null;
   observed_at: string | Date;
   created_at: string | Date;
   attrs: Record<string, string>;
@@ -217,7 +218,7 @@ export async function getSpot(id: string) {
  */
 export async function getObservations(spotId: string, limit = 20) {
   return query<ObservationRow>(
-    `SELECT o.id, o.status, o.observed_at, o.created_at, o.attrs, o.note,
+    `SELECT o.id, o.status, o.observed_at, o.created_at, o.attrs, o.note, o.photo_path,
             COALESCE(cf.agrees, 0)::int AS agrees, COALESCE(cf.disagrees, 0)::int AS disagrees
      FROM observations o
      LEFT JOIN LATERAL (
@@ -326,10 +327,13 @@ export async function insertObservation(input: {
   note: string | null;
   reporterToken: string;
   ip?: string;
+  photoPath?: string | null;
+  photoBytes?: number | null;
 }) {
   const rows = await query<{ id: string }>(
-    `INSERT INTO observations (spot_id, status, observed_at, attrs, note, reporter_token, ip)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
+    `INSERT INTO observations (spot_id, status, observed_at, attrs, note, reporter_token, ip,
+                               photo_path, photo_bytes)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       input.spotId,
@@ -339,6 +343,8 @@ export async function insertObservation(input: {
       input.note,
       input.reporterToken,
       input.ip ?? null,
+      input.photoPath ?? null,
+      input.photoBytes ?? null,
     ]
   );
   return rows[0];
@@ -606,4 +612,15 @@ export async function myObservations(reporterToken: string, limit = 30) {
      ORDER BY o.created_at DESC LIMIT $2`,
     [reporterToken, limit]
   );
+}
+
+/** 写真の連投を止める。容量を食い潰されるのを防ぐ */
+export async function recentPhotoCountByIp(ip: string, withinMinutes = 10) {
+  const rows = await query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM observations
+     WHERE ip = $1 AND photo_path IS NOT NULL
+       AND created_at > now() - ($2 || ' minutes')::interval`,
+    [ip, withinMinutes]
+  );
+  return Number(rows[0]?.n ?? 0);
 }

@@ -5,6 +5,7 @@ import { getSpot, getObservations } from '@/lib/queries';
 import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
 import { buildMetadata, SITE_NAME } from '@/lib/seo';
+import { PHOTO } from '@/lib/photo';
 import ReportAbuse from '@/components/ReportAbuse';
 import { googleMapsUrl, googleDirectionsUrl } from '@/lib/external';
 
@@ -98,6 +99,24 @@ export default async function SpotPage({
         )}
 
         {showStatus && latest.note && <div className="note">{latest.note}</div>}
+
+        {/*
+          写真。行列や貼り紙の1枚が持つ説得力は大きい。
+          EXIFは送信前に落としてあるので、撮影場所は漏れない。
+        */}
+        {showStatus && latest.photo_path && (
+          <figure className="photo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/uploads/${latest.photo_path}`}
+              alt={`${spot.name}の様子`}
+              loading="lazy"
+            />
+            <figcaption>
+              住民が撮影した写真です。{PHOTO.retentionDays}日で自動的に消えます。
+            </figcaption>
+          </figure>
+        )}
 
         {latest && fresh && (
           <div className="age">

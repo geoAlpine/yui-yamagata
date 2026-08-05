@@ -15,6 +15,8 @@ export async function POST(req: Request) {
     observedMinutesAgo?: number;
     attrs?: Record<string, string>;
     note?: string;
+    photoPath?: string;
+    photoBytes?: number;
   };
   try {
     body = await req.json();
@@ -68,6 +70,14 @@ export async function POST(req: Request) {
 
   const note = (body.note ?? '').trim().slice(0, NOTE_MAX) || null;
 
+  // 写真のパスは /api/photos が返した形式（YYYY/MM/uuid.webp）だけ受ける。
+  // 任意の文字列を通すと、別のファイルを指させる余地ができる。
+  const photoPath =
+    typeof body.photoPath === 'string' &&
+    /^\d{4}\/\d{2}\/[0-9a-f-]{36}\.webp$/.test(body.photoPath)
+      ? body.photoPath
+      : null;
+
   const row = await insertObservation({
     spotId,
     status,
@@ -76,6 +86,8 @@ export async function POST(req: Request) {
     note,
     reporterToken,
     ip: clientIp(req),
+    photoPath,
+    photoBytes: photoPath ? Number(body.photoBytes) || null : null,
   });
 
   revalidatePath('/');

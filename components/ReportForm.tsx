@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCategory, attrsForStatus } from '@/lib/categories';
+import { compressImage } from '@/lib/photo';
 
 /**
  * 状況の報告。
@@ -37,6 +38,26 @@ export default function ReportForm({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 写真。行列や貼り紙の1枚が持つ説得力は大きい。
+  // 送る前に canvas で縮小・WebP化する。EXIF（GPS座標・端末情報）が
+  // そこで落ちるので、投稿者の居場所が漏れない。
+  const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  async function pickPhoto(f: File | undefined) {
+    if (!f) return;
+    setPhotoBusy(true);
+    setError(null);
+    try {
+      const blob = await compressImage(f);
+      if (!blob) { setError('この画像は使えませんでした'); return; }
+      if (photo) URL.revokeObjectURL(photo.url);
+      setPhoto({ blob, url: URL.createObjectURL(blob) });
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+
   if (!cat) return <p className="empty">不明なカテゴリです。</p>;
 
   const visibleAttrs = status ? attrsForStatus(category, status) : [];
@@ -46,6 +67,22 @@ export default function ReportForm({
     setSending(true);
     setError(null);
     try {
+      // 写真を先に送る。ここで失敗しても報告自体は通すべきなので、
+      // 写真だけ諦めて続ける（災害時に「写真のせいで投稿できない」が最悪）
+      let photoPath: string | null = null;
+      let photoBytes: number | null = null;
+      if (photo) {
+        const fd = new FormData();
+        fd.append('photo', photo.blob, 'photo.webp');
+        const pr = await fetch('/api/photos', {
+          method: 'POST', body: fd, credentials: 'same-origin',
+        });
+        if (pr.ok) {
+          const pd = await pr.json();
+          photoPath = pd.path; photoBytes = pd.bytes;
+        }
+      }
+
       const res = await fetch('/api/observations', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -55,6 +92,8 @@ export default function ReportForm({
           observedMinutesAgo: minutesAgo,
           attrs,
           note,
+          photoPath,
+          photoBytes,
         }),
         credentials: 'same-origin',
       });
@@ -156,6 +195,42 @@ export default function ReportForm({
             )}
           </div>
         ))}
+
+        <div className="field">
+          <label htmlFor="photo">写真（任意）</label>
+          {photo ? (
+            <div className="photo-pick">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photo.url} alt="選んだ写真" />
+              <button
+                type="button"
+                className="btn-sm"
+                onClick={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }}
+              >
+                取り消す
+              </button>
+            </div>
+          ) : (
+            <input
+              id="photo"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              disabled={photoBusy}
+              onChange={(e) => pickPhoto(e.target.files?.[0])}
+            />
+          )}
+          {photoBusy && <p className="sub">読み込んでいます…</p>}
+          {/*
+            顔とナンバープレートは技術では消せない。
+            投稿前に伝えるしかない。ここは目立たせる。
+          */}
+          <p className="spot-caution">
+            <strong>人の顔や車のナンバーが写らないようにしてください。</strong>
+            撮影場所などの情報（EXIF）は送信前に自動で消えますが、
+            写っているものは消せません。誰でも見られる場所に公開されます。
+          </p>
+        </div>
 
         <div className="field">
           <label htmlFor="note">ひとこと（{note.length}/80）</label>

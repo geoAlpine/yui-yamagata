@@ -48,3 +48,7 @@ next-env.d.ts
 # ローカルのDBダンプ
 *.dump
 *.sql.gz
+
+# 投稿された写真。リポジトリには入れない
+/uploads/*
+!/uploads/.gitkeep

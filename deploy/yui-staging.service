@@ -25,7 +25,11 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/www/yui/staging
+# 写真の保存先はアプリのツリーの外に置く。
+# 中に置くと nginx（www-data）が親ディレクトリを通れず403になり、
+# 権限を緩めるとアプリのソースまで読ませることになる。
+# ProtectSystem=strict なので、書き込む場所は明示的に許可が要る。
+ReadWritePaths=/var/www/yui/staging /var/www/yui-uploads/staging
 
 [Install]
 WantedBy=multi-user.target

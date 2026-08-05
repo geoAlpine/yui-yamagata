@@ -25,7 +25,10 @@ echo "現在: $OLD"
 echo "--- 取得"
 git fetch -q origin
 NEW=$(git rev-parse origin/main)
-if [ "$OLD" = "$NEW" ]; then echo "変更なし。終了"; exit 0; fi
+if [ "$OLD" = "$NEW" ]; then
+  echo "===== 変更なし。デプロイ不要 ====="
+  exit 0
+fi
 git reset -q --hard origin/main
 echo "更新: $(git log -1 --format='%h %s')"
 

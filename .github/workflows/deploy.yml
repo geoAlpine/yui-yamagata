@@ -29,10 +29,15 @@ jobs:
       - name: デプロイ
         # 鍵は authorized_keys の command= で deploy-remote.sh に固定してある。
         # ここで何を渡してもそのスクリプトしか動かない（鍵が漏れてもシェルは取れない）。
+        #
+        # 成否はスクリプトの終了コードで見る。出力の文字列で判定すると
+        # 「変更なし。終了」を失敗と誤判定するような表記ゆれで壊れる（実際に踏んだ）。
         run: |
-          ssh -o BatchMode=yes \
-            deploy-yui@${{ secrets.DEPLOY_HOST }} 2>&1 | tee deploy.log
-          tail -1 deploy.log | grep -q "完了" || exit 1
+          set -o pipefail
+          ssh -o BatchMode=yes deploy-yui@${{ secrets.DEPLOY_HOST }} > deploy.log 2>&1
+          rc=$?
+          cat deploy.log
+          exit $rc
 
       - name: 外部から到達できるか
         run: |

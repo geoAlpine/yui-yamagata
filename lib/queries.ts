@@ -95,6 +95,63 @@ export async function findSpots(opts: {
   return query<SpotRow>(sql, params);
 }
 
+/**
+ * 名前・住所での検索。
+ *
+ * 6,699件に増えたことで、距離順だけでは目的の場所に辿り着けなくなった。
+ * 「ヤマザワ」「琢成小学校」のように名前が分かっているときは検索のほうが速い。
+ *
+ * 検索でもカテゴリの絞り込みとモードは効かせる。平時に「災害ごみ仮置場」が
+ * 検索で出てくると、存在しないものを探しに行かせることになる。
+ */
+export async function searchSpots(opts: {
+  q: string;
+  categories: string[];
+  lat?: number;
+  lng?: number;
+  limit?: number;
+}): Promise<SpotRow[]> {
+  const { q, categories, lat, lng, limit = 50 } = opts;
+  const hasLoc = typeof lat === 'number' && typeof lng === 'number';
+  const term = `%${q.trim().slice(0, 40)}%`;
+
+  const sql = `
+    SELECT
+      s.id, s.name, s.category, s.address, s.is_priority, s.note, s.hazards,
+      ST_Y(s.location::geometry) AS lat,
+      ST_X(s.location::geometry) AS lng,
+      ${hasLoc
+        ? 'ST_Distance(s.location, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography)'
+        : 'NULL::double precision'} AS distance_m,
+      o.id AS obs_id, o.status, o.observed_at, o.attrs, o.note AS obs_note,
+      COALESCE(cf.agrees, 0)::int AS agrees,
+      COALESCE(cf.disagrees, 0)::int AS disagrees
+    FROM spots s
+    LEFT JOIN LATERAL (
+      SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note
+      FROM observations o2 WHERE o2.spot_id = s.id AND NOT o2.is_hidden
+      ORDER BY o2.observed_at DESC LIMIT 1
+    ) o ON true
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) FILTER (WHERE c.agrees) AS agrees,
+             COUNT(*) FILTER (WHERE NOT c.agrees) AS disagrees
+      FROM confirmations c WHERE c.observation_id = o.id
+    ) cf ON true
+    WHERE s.is_active
+      AND s.category = ANY($1::text[])
+      AND (s.name ILIKE $2 OR s.address ILIKE $2)
+    ORDER BY
+      -- 名前の一致を住所の一致より上に。店名で探している人が多い
+      (s.name ILIKE $2) DESC,
+      ${hasLoc ? 'distance_m ASC NULLS LAST,' : ''}
+      s.name ASC
+    LIMIT $3
+  `;
+  const params: unknown[] = [categories, term, limit];
+  if (hasLoc) params.push(lng, lat);
+  return query<SpotRow>(sql, params);
+}
+
 /** 地域の絞り込みに出す選択肢。実際にスポットがある市町村だけを返す */
 export async function listMunicipalities(categories: string[]): Promise<string[]> {
   const rows = await query<{ municipality: string }>(

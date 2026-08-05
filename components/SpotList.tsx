@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import SpotCard from './SpotCard';
 import { readFavorites, toggleFavorite } from '@/lib/favorites';
+import { readHome, saveHome, clearHome, type HomeLocation } from '@/lib/home';
 import { getCategory } from '@/lib/categories';
 import type { SpotRow } from '@/lib/queries';
 
@@ -30,6 +31,21 @@ export default function SpotList({
   const [locState, setLocState] = useState<
     'idle' | 'asking' | 'ok' | 'denied' | 'unavailable'
   >('idle');
+
+  // 自宅（気になる場所）。発災時に自宅にいるとは限らないので、
+  // 現在地とは別に持てるようにする。職場から自宅周辺を見る、が現実的な使い方。
+  const [home, setHome] = useState<HomeLocation | null>(null);
+  const [basis, setBasis] = useState<'current' | 'home'>('current');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const h = readHome();
+      setHome(h);
+      // 自宅が登録してあれば、そちらを既定にする。
+      // わざわざ登録した人は、そこを見たいはずなので。
+      if (h) setBasis('home');
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // 位置情報で取り直した結果。どの絞り込みに対する結果かを一緒に持つ。
   // props を state に写す effect を書くと、カテゴリを切り替えたときに
@@ -86,6 +102,7 @@ export default function SpotList({
 
   // 権限が既に許可済みなら黙って近い順にする。毎回タップさせない。
   useEffect(() => {
+    if (basis !== 'current') return;
     if (!navigator.permissions?.query) return;
     navigator.permissions
       .query({ name: 'geolocation' as PermissionName })
@@ -93,13 +110,61 @@ export default function SpotList({
         if (s.state === 'granted') requestLocation();
       })
       .catch(() => {});
-  }, [requestLocation]);
+  }, [requestLocation, basis]);
+
+  // 自宅を基準にする
+  useEffect(() => {
+    if (basis === 'home' && home) sortByDistance(home.lat, home.lng);
+  }, [basis, home, sortByDistance]);
+
+  /** 現在地を自宅として登録する。地図が無いので、家にいるときに押してもらう */
+  function registerHome() {
+    if (!('geolocation' in navigator)) return setLocState('unavailable');
+    setLocState('asking');
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const h = {
+          lat: p.coords.latitude,
+          lng: p.coords.longitude,
+          label: 'この端末で登録した場所',
+        };
+        saveHome(h);
+        setHome(h);
+        setBasis('home');
+        setLocState('idle');
+      },
+      () => setLocState('denied'),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  }
 
   return (
     <>
       <div className="locbar">
-        {locState === 'ok' ? (
-          <span>現在地から近い順に表示中</span>
+        {home ? (
+          <>
+            <span>
+              {basis === 'home' ? '登録した場所から近い順' : '現在地から近い順'}
+            </span>
+            <button onClick={() => setBasis(basis === 'home' ? 'current' : 'home')}>
+              {basis === 'home' ? '現在地に切り替え' : '登録した場所に切り替え'}
+            </button>
+            <button
+              onClick={() => { clearHome(); setHome(null); setBasis('current'); }}
+            >
+              登録を消す
+            </button>
+          </>
+        ) : locState === 'ok' ? (
+          <>
+            <span>現在地から近い順に表示中</span>
+            {/*
+              発災時に自宅にいるとは限らない。職場から自宅周辺を見たい、
+              家族のいる地域を確認したい、という使い方のほうが多い。
+              地図が無いので「家にいるときに押してもらう」形にする。
+            */}
+            <button onClick={registerHome}>ここを自宅として登録</button>
+          </>
         ) : (
           <>
             <span>
@@ -117,6 +182,13 @@ export default function SpotList({
           </>
         )}
       </div>
+
+      {home && basis === 'home' && (
+        <p className="sub" style={{ marginTop: -4, marginBottom: 10 }}>
+          自宅として登録した場所を基準にしています。この端末にのみ保存され、
+          サーバには送られません。
+        </p>
+      )}
 
       {ordered.length === 0 ? (
         <EmptyState categoryId={emptyCategory} />

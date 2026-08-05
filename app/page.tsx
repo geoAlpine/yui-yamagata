@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { categoriesForMode } from '@/lib/categories';
 import {
-  findSpots, getMode, listMunicipalities, countByCategory, getServerNow,
+  findSpots, searchSpots, getMode, listMunicipalities, countByCategory, getServerNow,
 } from '@/lib/queries';
 import SpotList from '@/components/SpotList';
 
@@ -12,9 +12,10 @@ export const revalidate = 60;
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ cat?: string; muni?: string }>;
+  searchParams: Promise<{ cat?: string; muni?: string; q?: string }>;
 }) {
-  const { cat, muni } = await searchParams;
+  const { cat, muni, q } = await searchParams;
+  const query = (q ?? '').trim().slice(0, 40);
   const { mode } = await getMode();
   const cats = categoriesForMode(mode);
 
@@ -25,12 +26,15 @@ export default async function Home({
   const municipalities = await listMunicipalities(targetCategories);
   const selectedMuni = muni && municipalities.includes(muni) ? muni : null;
 
-  const spots = await findSpots({
-    mode,
-    categories: targetCategories,
-    municipality: selectedMuni,
-    limit: 50,
-  });
+  // 検索は距離順より優先する。名前が分かっているなら、それが最短経路
+  const spots = query
+    ? await searchSpots({ q: query, categories: targetCategories, limit: 50 })
+    : await findSpots({
+        mode,
+        categories: targetCategories,
+        municipality: selectedMuni,
+        limit: 50,
+      });
   const serverNow = await getServerNow();
 
   const qs = (over: { cat?: string | null; muni?: string | null }) => {
@@ -39,6 +43,7 @@ export default async function Home({
     const m = over.muni === undefined ? selectedMuni : over.muni;
     if (c) p.set('cat', c);
     if (m) p.set('muni', m);
+    if (query) p.set('q', query);
     const s = p.toString();
     return s ? `/?${s}` : '/';
   };
@@ -70,6 +75,31 @@ export default async function Home({
             災害が起きると、営業中の店・物資配布・断水などの報告を受け付ける画面に切り替わります。
           </span>
         </div>
+      )}
+
+      {/*
+        検索。GETフォームなのでJSが落ちても動く。
+        6,699件になり、距離順に50件めくるより名前で引くほうが速い場面が増えた。
+      */}
+      <form className="search" action="/" method="get">
+        {selected && <input type="hidden" name="cat" value={selected} />}
+        <input
+          type="search"
+          name="q"
+          defaultValue={query}
+          placeholder="店名・施設名・住所で探す"
+          aria-label="検索"
+          enterKeyHint="search"
+        />
+        <button type="submit">探す</button>
+      </form>
+
+      {query && (
+        <p className="search-result">
+          「{query}」の検索結果 {spots.length}件
+          {spots.length >= 50 && '（多いため50件まで）'}
+          <a href={qs({ cat: selected }).replace(/[?&]q=[^&]*/, '') || '/'}>検索をやめる</a>
+        </p>
       )}
 
       <div className="chiprow">

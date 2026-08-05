@@ -6,13 +6,34 @@
 #
 # spots は upsert なので、住民の報告（observations）は消えない。
 set -uo pipefail
-LOG=/var/log/yui/refresh-$(date +%Y%m%d).log
-mkdir -p /var/log/yui
+
+# ログは deploy-yui が書ける場所に置く。
+# /var/log は root:syslog 775 で、deploy-yui はどちらのグループにも属さない。
+# 当初 /var/log/yui に出そうとして mkdir に失敗し、cronが毎月静かに
+# 落ち続ける状態になっていた（誰も気づかないので最悪の壊れ方）。
+LOGDIR=/var/www/yui/production/logs
+mkdir -p "$LOGDIR" || { echo "ログ出力先を作れません: $LOGDIR"; exit 1; }
+LOG="$LOGDIR/refresh-$(date +%Y%m%d).log"
 exec > >(tee -a "$LOG") 2>&1
 
-echo "===== $(date -Is) データ更新 開始 ====="
+# --check は疎通と権限だけ確かめて終わる。cronを1か月待たずに検証するため。
+CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+
+echo "===== $(date -Is) データ更新 $([ $CHECK = 1 ] && echo '事前確認' || echo '開始') ====="
 cd /var/www/yui/production/current
 set -a; . /etc/yui/production.env; set +a
+
+if [ $CHECK = 1 ]; then
+  echo "ログ出力先: $LOG（書込可）"
+  echo "DB接続: $(psql "$DATABASE_URL" -tAc 'select count(*) from spots') spots"
+  echo "Overpass: $(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://overpass-api.de/api/status)"
+  echo "取り込みスクリプト:"
+  for f in scripts/import_osm.mjs scripts/import_water.mjs scripts/assign_municipality.mjs; do
+    [ -r "$f" ] && echo "  あり $f" || echo "  ★無い $f"
+  done
+  echo "===== 事前確認OK ====="
+  exit 0
+fi
 
 before=$(psql "$DATABASE_URL" -tAc "select count(*) from spots where is_active")
 echo "更新前: ${before} 件"
@@ -36,5 +57,5 @@ if [ "$after" -lt $(( before * 8 / 10 )) ]; then
 fi
 
 # 古いログを片付ける
-find /var/log/yui -name 'refresh-*.log' -mtime +90 -delete 2>/dev/null || true
+find "$LOGDIR" -name 'refresh-*.log' -mtime +90 -delete 2>/dev/null || true
 echo "===== $(date -Is) 完了 ====="

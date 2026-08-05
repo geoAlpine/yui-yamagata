@@ -1,12 +1,37 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getSpot, getObservations } from '@/lib/queries';
 import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
+import { buildMetadata, SITE_NAME } from '@/lib/seo';
 import ReportAbuse from '@/components/ReportAbuse';
 import { googleMapsUrl, googleDirectionsUrl } from '@/lib/external';
 
 export const revalidate = 60;
+
+/**
+ * 個別スポットは noindex。6,699件の薄いページをインデックスさせると
+ * サイト全体の評価が下がるうえ、「酒田市 避難所」で市の公式より上に
+ * 個別ページが出るのは望ましくない。SNSで共有されたときのカードは出す。
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const spot = await getSpot(id);
+  if (!spot) return buildMetadata({ title: SITE_NAME, description: '', noindex: true });
+  const cat = getCategory(spot.category);
+  return buildMetadata({
+    title: `${spot.name}（${cat?.label ?? ''}）| ${SITE_NAME}`,
+    description:
+      `${spot.address ?? ''}${spot.name}の今の状況。` +
+      '住民が実際に見た情報で、公式発表ではありません。',
+    noindex: true,
+  });
+}
 
 function fmtTime(iso: string | Date) {
   const d = typeof iso === 'string' ? new Date(iso) : iso;

@@ -1,5 +1,7 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { categoriesForMode, hazardLabel, HAZARDS } from '@/lib/categories';
+import { buildMetadata, SITE_NAME } from '@/lib/seo';
 import {
   findSpots, searchSpots, getMode, listMunicipalities, countByCategory, getServerNow,
 } from '@/lib/queries';
@@ -8,6 +10,51 @@ import SpotList from '@/components/SpotList';
 // 一覧は短命キャッシュ。鮮度は分単位で足りるので秒単位の即時性は要らない。
 // 本番ではこの値が Cloudflare の s-maxage と対応する（DESIGN.md 7章）。
 export const revalidate = 60;
+
+/**
+ * 実際に検索されるのは「酒田市 給水所」「山形 避難所」のような組み合わせ。
+ * すべてのページが同じタイトルだと、そのどれにも当たらない。
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<{ cat?: string; muni?: string; q?: string; hz?: string }>;
+}): Promise<Metadata> {
+  const { cat, muni, q, hz } = await searchParams;
+  const { mode } = await getMode();
+  const c = cat ? categoriesForMode(mode).find((x) => x.id === cat) : null;
+  const hzName = hz && hz !== 'all' ? hazardLabel(hz) : null;
+
+  if (q) {
+    return buildMetadata({
+      title: `「${q}」の検索結果 | ${SITE_NAME}`,
+      description: `山形県内の${q}に関する場所を探せます。`,
+      noindex: true, // 検索結果ページはインデックスさせない
+    });
+  }
+
+  const where = muni ?? '山形県';
+  if (c) {
+    const t = hzName && c.id === 'evacuation'
+      ? `${where}の${hzName}に対応する緊急避難場所`
+      : `${where}の${c.label}`;
+    return buildMetadata({
+      title: `${t} | ${SITE_NAME}`,
+      description:
+        `${where}の${c.label}を現在地から近い順に表示します。` +
+        `開いているかどうかは住民の報告によるもので、公式情報ではありません。`,
+      path: `/?cat=${c.id}${muni ? `&muni=${encodeURIComponent(muni)}` : ''}`,
+    });
+  }
+
+  return buildMetadata({
+    title: `${SITE_NAME} — ${where}の生活情報`,
+    description:
+      '開いてる店・給水所・避難場所の今を、見た人が報告し合う山形の生活情報サイト。' +
+      '災害時に「今どこで何が手に入るか」を住民同士で共有します。',
+    path: '/',
+  });
+}
 
 export default async function Home({
   searchParams,

@@ -1,12 +1,20 @@
 import Link from 'next/link';
 import { NOTICE_KINDS, getNoticeKind } from '@/lib/notices';
 import { findNotices } from '@/lib/queries';
+import { buildMetadata, SITE_NAME } from '@/lib/seo';
 import { getOrIssueIdentity } from '@/lib/identity';
 import CloseNotice from '@/components/CloseNotice';
 
 // 投稿者本人にだけ「終了しました」を出すため cookie を読む。
 // この分キャッシュは効かないが、お知らせは一覧ほど負荷が高くないので許容する。
 export const dynamic = 'force-dynamic';
+
+export const metadata = buildMetadata({
+  title: `お知らせ（ボランティア募集・物資の要望）| ${SITE_NAME}`,
+  description:
+    '山形県内の団体・拠点からのお知らせ。ボランティア募集、物資の要望、支援の提供。連絡先の記載を必須にしています。',
+  path: '/notices',
+});
 
 function fmtDate(d: string | Date | null) {
   if (!d) return null;

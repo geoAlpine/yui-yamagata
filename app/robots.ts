@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { IS_REAL } from '@/lib/env';
+import { IS_REAL, PRODUCTION_URL } from '@/lib/env';
 
 /**
  * ★必ず実行時に評価する。
@@ -21,6 +21,7 @@ export default function robots(): MetadataRoute.Robots {
     return { rules: [{ userAgent: '*', disallow: '/' }] };
   }
   return {
-    rules: [{ userAgent: '*', allow: '/', disallow: ['/admin', '/api/'] }],
+    rules: [{ userAgent: '*', allow: '/', disallow: ['/admin', '/api/', '/spots/', '/report/'] }],
+    sitemap: `${PRODUCTION_URL}/sitemap.xml`,
   };
 }

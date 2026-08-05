@@ -1,0 +1,19 @@
+# /etc/cron.d/yui-purge
+#
+# 写真の削除。毎日午前4時（アクセスの少ない時間帯、月次のデータ更新の後）。
+# deploy-yui として実行する。root ではない。
+#
+# 日次なのは、期限切れ（14日）だけでなく、管理者が伏せた報告と
+# 投稿者が取り下げた報告の写真も消すため。伏せたのに /uploads/ を
+# 直接叩けば見られる状態を、翌日までに解消する。
+#
+# 本番とステージングの両方を回す。ステージングを放置すると、
+# 動作確認で入れた写真が溜まり続ける。
+#
+# ※ /etc/cron.d には immutable 属性が付いている。設置は
+#      chattr -i /etc/cron.d → 配置 → chattr +i /etc/cron.d
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+0 4 * * * deploy-yui /var/www/yui/production/current/deploy/purge-photos.sh production
+30 4 * * * deploy-yui /var/www/yui/staging/current/deploy/purge-photos.sh staging

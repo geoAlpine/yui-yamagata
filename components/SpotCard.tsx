@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getCategory, getStatus, attrsForStatus, hazardLabel } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
+import { thumbPath } from '@/lib/photo';
 import type { SpotRow } from '@/lib/queries';
 
 function formatDistance(m: number | null): string | null {
@@ -35,6 +36,9 @@ export default function SpotCard({
 
   const [voted, setVoted] = useState<null | 'yes' | 'no'>(null);
   const [sending, setSending] = useState(false);
+  // サムネイルが無い写真（この機能より前の投稿）は 404 になる。
+  // 壊れた画像アイコンを出すより、無かったことにして詰める。
+  const [thumbFailed, setThumbFailed] = useState(false);
 
   const cat = getCategory(spot.category);
   const hasObs = spot.obs_id != null && spot.observed_at != null;
@@ -120,6 +124,33 @@ export default function SpotCard({
       )}
 
       {showStatus && spot.obs_note && <div className="note">{spot.obs_note}</div>}
+
+      {/*
+        写真は一覧にも出す。「行列ができている」「水が来ている」は
+        文字より写真のほうが速く正確に伝わる。
+
+        ただし一覧に出すのは小さい版だけ。原寸は圧縮後でも250KB前後あり、
+        カード10枚で2.5MBになる。災害時の輻輳した回線でトップが開かなくなり、
+        このサイトの存在意義を壊す。原寸は詳細ページでだけ読み込む。
+
+        古い情報の写真は出さない。状態を伏せているのに写真だけ残ると、
+        いま撮ったもののように見える。
+      */}
+      {showStatus && spot.photo_path && !thumbFailed && (
+        <Link className="card-photo" href={`/spots/${spot.id}`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/uploads/${thumbPath(spot.photo_path)}`}
+            alt={`${spot.name}の様子`}
+            width={88}
+            height={88}
+            loading="lazy"
+            decoding="async"
+            onError={() => setThumbFailed(true)}
+          />
+          <span>写真あり</span>
+        </Link>
+      )}
 
       {/*
         指定緊急避難場所は災害種別ごとに指定されている。

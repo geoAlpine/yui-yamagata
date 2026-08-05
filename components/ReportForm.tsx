@@ -41,8 +41,10 @@ export default function ReportForm({
   // 写真。行列や貼り紙の1枚が持つ説得力は大きい。
   // 送る前に canvas で縮小・WebP化する。EXIF（GPS座標・端末情報）が
   // そこで落ちるので、投稿者の居場所が漏れない。
-  const [photo, setPhoto] = useState<{ blob: Blob; url: string } | null>(null);
+  const [photo, setPhoto] = useState<{ blob: Blob; thumb: Blob | null; url: string } | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  // 写真の送信に失敗した後、もう一度押されたら写真なしで送るための印
+  const [skipPhoto, setSkipPhoto] = useState(false);
 
   async function pickPhoto(f: File | undefined) {
     if (!f) return;
@@ -52,7 +54,8 @@ export default function ReportForm({
       const r = await compressImage(f);
       if (!r.ok) { setError(r.reason); return; }
       if (photo) URL.revokeObjectURL(photo.url);
-      setPhoto({ blob: r.blob, url: URL.createObjectURL(r.blob) });
+      setPhoto({ blob: r.blob, thumb: r.thumb, url: URL.createObjectURL(r.blob) });
+      setSkipPhoto(false);
     } finally {
       setPhotoBusy(false);
     }
@@ -69,17 +72,31 @@ export default function ReportForm({
     try {
       // 写真を先に送る。ここで失敗しても報告自体は通すべきなので、
       // 写真だけ諦めて続ける（災害時に「写真のせいで投稿できない」が最悪）
+      //
+      // ただし黙って落とさない。以前は失敗を握り潰していたので、
+      // 投稿者は写真が付いたつもりでいるのに実際は付いていなかった。
+      // 一度止めて理由を見せ、もう一度押せば写真なしで送れるようにする。
       let photoPath: string | null = null;
       let photoBytes: number | null = null;
-      if (photo) {
+      if (photo && !skipPhoto) {
         const fd = new FormData();
         fd.append('photo', photo.blob, 'photo');
+        // 一覧カード用の小さい版も一緒に送る。原寸を一覧に並べると回線が持たない
+        if (photo.thumb) fd.append('thumb', photo.thumb, 'thumb');
         const pr = await fetch('/api/photos', {
           method: 'POST', body: fd, credentials: 'same-origin',
-        });
-        if (pr.ok) {
+        }).catch(() => null);
+
+        if (pr?.ok) {
           const pd = await pr.json();
           photoPath = pd.path; photoBytes = pd.bytes;
+        } else {
+          const why = pr
+            ? (await pr.json().catch(() => null))?.error ?? '写真を送れませんでした'
+            : '写真を送れませんでした。電波の状態を確認してください。';
+          setError(`${why} もう一度押すと、写真なしで報告を送ります。`);
+          setSkipPhoto(true);
+          return;
         }
       }
 
@@ -141,7 +158,11 @@ export default function ReportForm({
             <button
               type="button"
               className="btn-sm"
-              onClick={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }}
+              onClick={() => {
+                URL.revokeObjectURL(photo.url);
+                setPhoto(null);
+                setSkipPhoto(false);
+              }}
             >
               取り消す
             </button>

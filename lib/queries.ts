@@ -21,6 +21,8 @@ export interface SpotRow {
   observed_at: string | Date | null;
   attrs: Record<string, string> | null;
   obs_note: string | null;
+  /** 最新の観測に付いた写真。一覧ではサムネイル（_t付き）を出す */
+  photo_path: string | null;
   agrees: number;
   disagrees: number;
 }
@@ -67,13 +69,14 @@ export async function findSpots(opts: {
       o.observed_at  AS observed_at,
       o.attrs        AS attrs,
       o.note         AS obs_note,
+      o.photo_path   AS photo_path,
       -- COUNT は bigint。pg ドライバが文字列で返すため、必ず int にキャストする。
       -- ここを怠ると disagrees > agrees が文字列比較になり、食い違い判定が壊れる。
       COALESCE(cf.agrees, 0)::int    AS agrees,
       COALESCE(cf.disagrees, 0)::int AS disagrees
     FROM spots s
     LEFT JOIN LATERAL (
-      SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note
+      SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note, o2.photo_path
       FROM observations o2
       WHERE o2.spot_id = s.id AND NOT o2.is_hidden AND o2.withdrawn_at IS NULL
       ORDER BY o2.observed_at DESC
@@ -140,12 +143,12 @@ export async function searchSpots(opts: {
       ${hasLoc
         ? 'ST_Distance(s.location, ST_SetSRID(ST_MakePoint($4, $5), 4326)::geography)'
         : 'NULL::double precision'} AS distance_m,
-      o.id AS obs_id, o.status, o.observed_at, o.attrs, o.note AS obs_note,
+      o.id AS obs_id, o.status, o.observed_at, o.attrs, o.note AS obs_note, o.photo_path,
       COALESCE(cf.agrees, 0)::int AS agrees,
       COALESCE(cf.disagrees, 0)::int AS disagrees
     FROM spots s
     LEFT JOIN LATERAL (
-      SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note
+      SELECT o2.id, o2.status, o2.observed_at, o2.attrs, o2.note, o2.photo_path
       FROM observations o2 WHERE o2.spot_id = s.id AND NOT o2.is_hidden AND o2.withdrawn_at IS NULL
       ORDER BY o2.observed_at DESC LIMIT 1
     ) o ON true
@@ -612,6 +615,20 @@ export async function myObservations(reporterToken: string, limit = 30) {
      ORDER BY o.created_at DESC LIMIT $2`,
     [reporterToken, limit]
   );
+}
+
+/**
+ * いま保存されている写真の合計バイト数。
+ *
+ * ディスクを実際に走査すると、投稿のたびに数万ファイルを stat することになる。
+ * DBの合計で代用する。サムネイル分と、投稿途中で離脱した孤児ファイルが
+ * 乗らないので、呼び出し側で少し多めに見積もる。
+ */
+export async function photoBytesTotal() {
+  const rows = await query<{ n: string | null }>(
+    `SELECT SUM(photo_bytes) AS n FROM observations WHERE photo_path IS NOT NULL`
+  );
+  return Number(rows[0]?.n ?? 0);
 }
 
 /** 写真の連投を止める。容量を食い潰されるのを防ぐ */

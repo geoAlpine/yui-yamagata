@@ -1,34 +1,58 @@
 #!/bin/bash
 # 期限切れの写真を消す。cron から日次で叩く。
 #
-# 2時間で腐る情報に付いた写真は、翌日には価値がない。
-# 放置すると容量が際限なく増えるうえ、写り込んだ人の顔が残り続ける。
-# 消すことが容量対策であると同時にプライバシー対策でもある。
+# 詳細ページに「14日で自動的に消えます」と書いている。利用者への約束であり、
+# 実装がなければ嘘になる。写り込んだ人の顔が永久に残ることを意味する。
+# 消すことは容量対策であると同時にプライバシー対策でもある。
+#
+# ── 以前ここにあった実装が動かなかった理由（同じ轍を踏まないため）──
+#   1. UP="$ROOT/current/uploads" を見ていた
+#      保存先は /var/www/yui-uploads/{env}/ に移してある（nginxが読めるように）。
+#      存在しないディレクトリを find していたので1枚も消えなかった。
+#   2. find -name '*.webp' だけだった
+#      canvas が WebP を出せない端末（iOS）は JPEG になる。実機の写真は
+#      ほぼ .jpg なので、いちばん消したいものが対象外だった。
+#   3. 一覧用サムネイル（_t 付き）を知らなかった
+#      原寸だけ消してサムネイルが残り、カードに写真が出続ける。
+#   4. cron に登録されていなかった。そもそも一度も動いていない。
+#
+# 判定をシェルの find でやめ、DBを見る node に寄せた。
+# 「どのファイルがまだ生きているか」を知っているのはDBだけで、
+# mtime での近似はこの種の取りこぼしを生む。
 set -uo pipefail
+
 TARGET="${1:-production}"
 case "$TARGET" in
   staging)    ROOT=/var/www/yui/staging ;;
   production) ROOT=/var/www/yui/production ;;
-  *) echo "使い方: purge-photos.sh [staging|production]"; exit 1 ;;
+  *) echo "使い方: purge-photos.sh [staging|production] [--dry]"; exit 1 ;;
 esac
-DAYS=14
-UP="$ROOT/current/uploads"
+shift || true
 
+# ログは deploy-yui が書ける場所に置く。/var/log は root:syslog 775 で書けない
+# （refresh-data.sh で一度踏んで、cronが静かに落ち続ける状態を作った）。
+LOGDIR="$ROOT/logs"
+mkdir -p "$LOGDIR" || { echo "ログ出力先を作れません: $LOGDIR"; exit 1; }
+LOG="$LOGDIR/purge-$(date +%Y%m).log"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "===== $(date -Is) 写真の削除 ($TARGET) ====="
+cd "$ROOT/current" || exit 1
 set -a; . "/etc/yui/${TARGET}.env"; set +a
-cd "$ROOT/current"
 
-before=$(psql "$DATABASE_URL" -tAc "select count(*) from observations where photo_path is not null")
-echo "$(date -Is) 削除前: ${before} 件"
+# UPLOAD_DIR は環境ファイルから来る。設定漏れに気づかないまま
+# process.cwd()/uploads を掃除しにいくと、何も消えないのに成功して見える。
+if [ -z "${UPLOAD_DIR:-}" ]; then
+  echo "UPLOAD_DIR が設定されていません。/etc/yui/${TARGET}.env を確認してください。"
+  exit 1
+fi
+echo "保存先: $UPLOAD_DIR"
 
-# DBを先に消す。ファイルだけ残るのは無害だが、逆は「読めない写真」を出す
-psql "$DATABASE_URL" -q -c "
-  UPDATE observations SET photo_path = NULL, photo_bytes = NULL
-  WHERE photo_path IS NOT NULL AND created_at < now() - interval '${DAYS} days'"
+node scripts/purge_photos.mjs "$@"
+rc=$?
 
-# ファイル本体
-[ -d "$UP" ] && find "$UP" -type f -name '*.webp' -mtime +${DAYS} -delete 2>/dev/null
-[ -d "$UP" ] && find "$UP" -type d -empty -delete 2>/dev/null
+# 古いログは畳む。ここが増え続けたら本末転倒
+find "$LOGDIR" -name 'purge-*.log' -mtime +180 -delete 2>/dev/null || true
 
-after=$(psql "$DATABASE_URL" -tAc "select count(*) from observations where photo_path is not null")
-size=$([ -d "$UP" ] && du -sh "$UP" 2>/dev/null | cut -f1 || echo 0)
-echo "$(date -Is) 削除後: ${after} 件 / 使用量: ${size}"
+echo "===== $(date -Is) 終了 (rc=$rc) ====="
+exit $rc

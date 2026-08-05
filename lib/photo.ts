@@ -26,14 +26,54 @@ export const PHOTO = {
   /** 長辺の上限。これ以上は災害時の回線で送れない */
   maxEdge: 1280,
   quality: 0.72,
+  /**
+   * 一覧カードに出すサムネイルの長辺。
+   *
+   * 実機で撮った写真は圧縮後でも240〜300KBある。これを一覧の全カードに
+   * 並べると、10件で3MB近い。災害時の輻輳した回線でトップページが
+   * 開かなくなり、このサイトの存在意義そのものを壊す。
+   *
+   * カードでの表示は88pxの正方形なので、2倍解像度でも176pxあれば足りる。
+   * 320pxにしているのは、将来カードを大きくしても作り直さずに済むため。
+   * この大きさなら15〜25KBに収まる。
+   */
+  thumbEdge: 320,
+  thumbQuality: 0.6,
   /** サーバ側の上限。圧縮後なら通常150KB前後 */
   maxBytes: 1_200_000,
   /** 保存期間。TTLを超えた情報に付いた写真は価値がない */
   retentionDays: 14,
+  /**
+   * 写真全体で使ってよい容量の上限。
+   *
+   * このVPSには商用9サイトが同居している。防災サイトがディスクを
+   * 食い潰して巻き込むことは避けなければならない。メモリとCPUに
+   * 上限を設けた（MemoryMax / CPUQuota）のと同じ理屈。
+   *
+   * 1枚あたり原寸250KB＋サムネ20KBで約270KB。5GBなら約1.8万枚。
+   * 14日で消えることを考えれば、県内の災害では十分に足りる。
+   *
+   * 上限に達しても報告そのものは通す。写真が付かないだけ。
+   * 「容量が一杯なので報告できません」は、災害時に最もやってはいけない。
+   */
+  maxTotalBytes: 5 * 1024 * 1024 * 1024,
 } as const;
 
+/**
+ * 原寸の保存パスからサムネイルのパスを導く。
+ *
+ *   2026/08/uuid.jpg → 2026/08/uuid_t.jpg
+ *
+ * DBに列を足していないのは、対応関係が機械的に決まるため。
+ * サムネイルが無い写真（この機能より前の投稿）では 404 になるが、
+ * 一覧側で onError にしてサムネイルごと隠すので表示は崩れない。
+ */
+export function thumbPath(photoPath: string): string {
+  return photoPath.replace(/\.(webp|jpg)$/, '_t.$1');
+}
+
 export type CompressResult =
-  | { ok: true; blob: Blob; type: 'image/webp' | 'image/jpeg' }
+  | { ok: true; blob: Blob; thumb: Blob | null; type: 'image/webp' | 'image/jpeg' }
   | { ok: false; reason: string };
 
 export async function compressImage(file: File): Promise<CompressResult> {
@@ -85,5 +125,28 @@ export async function compressImage(file: File): Promise<CompressResult> {
       reason: '写真が大きすぎます。もう少し引いて撮るか、別の写真をお試しください。',
     };
   }
-  return { ok: true, blob, type };
+
+  // 一覧カード用に小さいものも作る。原寸を並べると回線が持たない。
+  // 縮小元は原寸のcanvasではなく元のbitmapにしたいところだが、
+  // bitmapは既に閉じている。カード表示に耐える品質は出るのでこれでよい。
+  const tScale = Math.min(1, PHOTO.thumbEdge / Math.max(w, h));
+  const thumb =
+    tScale < 1
+      ? await (async () => {
+          const tc = document.createElement('canvas');
+          tc.width = Math.max(1, Math.round(w * tScale));
+          tc.height = Math.max(1, Math.round(h * tScale));
+          const tctx = tc.getContext('2d');
+          if (!tctx) return null;
+          tctx.drawImage(canvas, 0, 0, tc.width, tc.height);
+          return new Promise<Blob | null>((r) =>
+            tc.toBlob((b) => r(b), type, PHOTO.thumbQuality)
+          );
+        })()
+      : // 元から小さい写真は原寸をそのままサムネイルに使う
+        blob;
+
+  // サムネイルが作れなくても投稿自体は通す。
+  // 写真が付いた報告を「サムネイル生成に失敗したので」で捨てるのは本末転倒。
+  return { ok: true, blob, thumb, type };
 }

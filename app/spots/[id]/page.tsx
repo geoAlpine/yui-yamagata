@@ -5,7 +5,7 @@ import { getSpot, getObservations } from '@/lib/queries';
 import { getCategory, getStatus, attrsForStatus } from '@/lib/categories';
 import { evaluateFreshness, formatAge } from '@/lib/freshness';
 import { buildMetadata, SITE_NAME } from '@/lib/seo';
-import { PHOTO } from '@/lib/photo';
+import { PHOTO, thumbPath } from '@/lib/photo';
 import ReportAbuse from '@/components/ReportAbuse';
 import { googleMapsUrl, googleDirectionsUrl } from '@/lib/external';
 
@@ -169,7 +169,7 @@ export default async function SpotPage({
             return (
               <li key={o.id}>
                 <span className="t">{fmtTime(o.observed_at)}</span>
-                <span>
+                <span className="h-body">
                   <strong style={{ color: `var(--${s?.severity ?? 'unknown'})` }}>
                     {s?.label ?? o.status}
                   </strong>
@@ -178,6 +178,28 @@ export default async function SpotPage({
                     <span className="sub"> ・{o.agrees}人が同意</span>
                   )}
                 </span>
+                {/*
+                  過去の報告に付いた写真も出す。
+                  同じ場所に複数人が投稿したとき、最新の1枚だけ見せていたら
+                  「9時は5人待ち → 11時は50人」という推移が消える。
+                  写真が集まる場面こそ写真の価値が高い。
+
+                  ここもサムネイル。原寸を履歴の数だけ並べたら詳細ページが
+                  数MBになる。原寸はページ上部の最新1枚だけ。
+                */}
+                {o.photo_path && (
+                  <a className="h-photo" href={`/uploads/${o.photo_path}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/uploads/${thumbPath(o.photo_path)}`}
+                      alt={`${fmtTime(o.observed_at)}の様子`}
+                      width={56}
+                      height={56}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </a>
+                )}
               </li>
             );
           })}

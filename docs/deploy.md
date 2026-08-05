@@ -116,6 +116,45 @@ WantedBy=multi-user.target
 
 ---
 
+## コードのデプロイだけでは完結しないもの
+
+**自動デプロイ（`stg`/`main` への push）がやるのは、コードの反映とマイグレーションだけ。**
+以下は別途、明示的に実行する。ステージング構築でこれを4回踏んだ。
+
+| | 何が要るか | いつ必要か |
+|---|---|---|
+| **データ処理** | `import_shelters` / `fill_addresses` / `import_osm` / `import_water` | 取り込み対象を増やしたとき |
+| **nginx 設定** | `apply-uploads.sh` 等で明示的に適用 | `location` を足す変更をしたとき |
+| **ファイル配置** | 保存先ディレクトリの作成と所有者設定 | 新しい保存先を使うとき |
+| **systemd unit** | `apply-unit.sh` で `ReadWritePaths` 等を反映 | unit を変更したとき |
+
+**自動デプロイが nginx と systemd を触らないのは意図的。**
+CDがそれらを書き換えると、失敗したときに商用9サイトを巻き込む。
+その代わり、アプリの機能追加がサーバ設定の変更を要求する場合、
+そこが静かに抜ける。「デプロイしたのに動かない」という形で出る。
+
+### 実際に踏んだ例: 写真機能
+
+3段階で詰まった。掘るたびに原因が変わる。
+
+1. **404** — nginx に `/uploads/` の設定が無く、Next.js が返していた
+2. **403** — `/var/www/yui` が 750 で nginx（www-data）が通れない
+   → 保存先を `/var/www/yui-uploads/{env}/` に出した
+3. **500** — `ProtectSystem=strict` で書き込みが許可されていない
+   → systemd の `ReadWritePaths` に追加
+
+**3つ目はハードニングが正しく働いた結果。**
+新しい場所に書くには明示的な許可が要る、という設計通りの挙動。
+
+さらに **VPS側の作業はデプロイ完了を確認してから行う**。
+`apply-unit.sh` は VPS上のリポジトリから unit を読むので、
+デプロイ前に走らせると古い内容をコピーしてしまう。これも実際に踏んだ。
+
+```bash
+gh run list --repo geoAlpine/yui-yamagata --workflow Deploy --limit 1
+# completed/success を確認してから実行する
+```
+
 ## デプロイ前チェック
 
 - [ ] カーネル更新と再起動を済ませた（TASKS.md D-1）
@@ -125,3 +164,19 @@ WantedBy=multi-user.target
 - [ ] `deploy-yui` ユーザーを作り、sudo グループには**入れていない**
 - [ ] `set_real_ip_from` を設定した
 - [ ] バックアップの逃がし先を決めた（同じVPS内はバックアップにならない）
+
+### 本番に写真機能を入れるとき
+
+```bash
+# デプロイ完了を確認してから、この順で
+ssh -t vps sudo ./apply-uploads.sh production   # nginx に /uploads/
+ssh -t vps sudo ./fix-uploads.sh production     # 保存先をツリー外へ
+ssh -t vps sudo ./apply-unit.sh production      # ReadWritePaths
+```
+
+### 本番にデータを入れるとき
+
+```bash
+ssh -t vps sudo ./import-shelters.sh production  # 避難場所・避難所 3,876件
+ssh -t vps sudo ./fill-addresses.sh production   # 住所（町名）約2,500件
+```

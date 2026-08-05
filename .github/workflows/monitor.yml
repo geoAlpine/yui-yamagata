@@ -65,7 +65,7 @@ jobs:
 
       - name: 異常があれば課題を立てる
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const body = [
@@ -95,7 +95,7 @@ jobs:
 
       - name: 復旧したら課題を閉じる
         if: success()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: issues } = await github.rest.issues.listForRepo({

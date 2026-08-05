@@ -99,8 +99,8 @@ done
 
 ## 手順3: デプロイ用ユーザー
 
-**sudoグループには入れない。** 既存の `既存案件のデプロイ鍵` 鍵が
-sudo可能な `既存案件のユーザー` に刺さっているのと同じ状態を繰り返さない（docs/deploy.md）。
+**sudoグループには入れない。** 既存の 既存案件のデプロイ鍵が
+sudo可能な 既存案件のユーザー に刺さっているのと同じ状態を繰り返さない（docs/deploy.md）。
 
 ```bash
 sudo useradd -m -s /bin/bash deploy-yui

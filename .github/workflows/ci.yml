@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, stg]
   pull_request:
 
 # 同じブランチに続けて push したら前の実行は打ち切る

@@ -4,21 +4,50 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
-    branches: [main]
+    branches: [main, stg]
   workflow_dispatch:
+    inputs:
+      target:
+        description: 反映先
+        type: choice
+        options: [staging, production]
+        default: staging
 
+# 本番とステージングは別の待ち行列にする。
+# 片方のデプロイが他方を待たされる必要はない。
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.event.workflow_run.head_branch || inputs.target }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    # CIが通ったときだけ。壊れたものを本番に運ばない。
+    # CIが通ったときだけ。壊れたものを運ばない。
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
+      - id: target
+        name: 反映先を決める
+        # stg ブランチ → ステージング / main ブランチ → 本番
+        run: |
+          branch="${{ github.event.workflow_run.head_branch }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            target="${{ inputs.target }}"
+          elif [ "$branch" = "main" ]; then
+            target=production
+          elif [ "$branch" = "stg" ]; then
+            target=staging
+          else
+            echo "対象外のブランチ: $branch"; exit 78
+          fi
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          if [ "$target" = production ]; then
+            echo "url=https://yui-yamagata.com" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://staging.yui-yamagata.com" >> "$GITHUB_OUTPUT"
+          fi
+          echo "  ブランチ $branch → $target"
+
       - name: SSH鍵を用意
         run: |
           install -d -m 700 ~/.ssh
@@ -28,24 +57,39 @@ jobs:
 
       - name: デプロイ
         # 鍵は authorized_keys の command= で deploy-remote.sh に固定してある。
-        # ここで何を渡してもそのスクリプトしか動かない（鍵が漏れてもシェルは取れない）。
+        # 渡した文字列は $SSH_ORIGINAL_COMMAND としてスクリプトに届くだけで、
+        # 任意のコマンドは実行できない（鍵が漏れてもシェルは取れない）。
         #
         # 成否はスクリプトの終了コードで見る。出力の文字列で判定すると
         # 「変更なし。終了」を失敗と誤判定するような表記ゆれで壊れる（実際に踏んだ）。
         run: |
           set -o pipefail
-          ssh -o BatchMode=yes deploy-yui@${{ secrets.DEPLOY_HOST }} > deploy.log 2>&1
+          ssh -o BatchMode=yes deploy-yui@${{ secrets.DEPLOY_HOST }} \
+            "${{ steps.target.outputs.target }}" > deploy.log 2>&1
           rc=$?
           cat deploy.log
           exit $rc
 
       - name: 外部から到達できるか
+        env:
+          BASE: ${{ steps.target.outputs.url }}
+          TARGET: ${{ steps.target.outputs.target }}
         run: |
-          for p in / /notices /robots.txt; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://yui-yamagata.com$p")
-            echo "  $p -> $code"
-            [ "$code" = "200" ] || exit 1
+          # ステージングは Basic認証で守ってあるので 401 が正常
+          want=200; [ "$TARGET" = staging ] && want=401
+          for p in / /notices; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE$p")
+            echo "  $p -> $code (期待 $want)"
+            [ "$code" = "$want" ] || exit 1
           done
+          if [ "$TARGET" = staging ]; then
+            # 認証を通した中身も見る。noindex と確認用の帯が出ていること
+            r=$(curl -su "${{ secrets.STAGING_BASIC_AUTH }}" --max-time 20 "$BASE/robots.txt")
+            echo "$r" | grep -q "Disallow: /" || { echo "ステージングが索引可になっている"; exit 1; }
+            curl -su "${{ secrets.STAGING_BASIC_AUTH }}" --max-time 20 "$BASE/" | grep -q envbar \
+              || { echo "確認用の帯が出ていない"; exit 1; }
+            echo "  noindex と確認用の帯: OK"
+          fi
 
       - name: 失敗したら記録を残す
         if: failure()

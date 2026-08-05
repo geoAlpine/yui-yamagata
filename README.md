@@ -49,6 +49,19 @@ UPDATE site_state SET mode = 'disaster';  -- 有事
 UPDATE site_state SET mode = 'snow';      -- 平時
 ```
 
+## ブランチとデプロイ
+
+```
+stg  ブランチ → CI → staging.yui-yamagata.com （Basic認証・noindex）
+main ブランチ → CI → yui-yamagata.com
+```
+
+CIが落ちたらデプロイは走らない。デプロイ後に200が返らなければ**自動で前の版に戻す**。
+災害情報サイトでは「常に最新」より「常に動く」が優先。
+
+`stg` で確かめてから `main` に入れる。とくに**災害モードへの切り替えは
+本番でリハーサルできない**ので、ステージングで練習しておく。
+
 ## 開発
 
 ```bash

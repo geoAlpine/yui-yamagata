@@ -93,10 +93,20 @@ export default function AboutPage() {
           <dd>山形県</dd>
           <dt>連絡先</dt>
           <dd>
+            <a href="mailto:info@geoalpine.net">info@geoalpine.net</a>
+            <br />
+            不具合のご連絡、掲載内容の削除依頼、自治体の方からのご相談など。
+          </dd>
+          {/*
+            技術的な話はGitHubに寄せる。
+            他県のエンジニアが同じ問題に当たったとき、
+            やりとりが公開されていれば検索で辿り着ける。
+          */}
+          <dt>不具合の報告・開発</dt>
+          <dd>
             <a href="https://github.com/geoAlpine/yui-yamagata/issues">
               GitHub の Issues
             </a>
-            （不具合・ご要望）
           </dd>
         </dl>
         <p style={{ marginTop: 10 }}>
@@ -182,6 +192,12 @@ export default function AboutPage() {
         <p style={{ marginTop: 10 }}>
           災害時にはサーバーや通信そのものが使えなくなることがあります。
           このサイトが使えることを前提にした避難計画は立てないでください。
+        </p>
+        <p style={{ marginTop: 10 }}>
+          掲載内容について削除のご依頼がある場合は{' '}
+          <a href="mailto:info@geoalpine.net">info@geoalpine.net</a>{' '}
+          までご連絡ください。写真に人が写り込んでいる、店舗の状況が事実と
+          異なる、といったご指摘にも対応します。
         </p>
       </div>
 

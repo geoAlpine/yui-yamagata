@@ -1,0 +1,17 @@
+# 平時に誰も開かないサイトは、依存の脆弱性も放置される。
+# 災害の日に古いまま動いているのを避けるため、更新を自動で拾う。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # まとめて上げる。細かいPRが積もると結局読まれない
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

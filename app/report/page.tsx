@@ -36,7 +36,7 @@ export default async function ReportIndex({
 
   const spots = query
     ? await searchSpots({ q: query, categories: target, limit: 40 })
-    : await findSpots({ mode, categories: target, limit: 40 });
+    : await findSpots({ categories: target, limit: 40 });
 
   return (
     <>

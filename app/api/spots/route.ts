@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
 import { getCategory } from '@/lib/categories';
 import {
-  findSpots, getMode, findNearbySpots, insertSpot, recentSpotCountByIp,
+  findSpots, findNearbySpots, insertSpot, recentSpotCountByIp,
 } from '@/lib/queries';
 import { getOrIssueIdentity, attachIdentity, clientIp } from '@/lib/identity';
 
@@ -29,9 +29,11 @@ export async function GET(req: Request) {
   // 絞り込みが外れ、「距離順にしたら洪水非対応の避難場所が混ざる」
   // という最悪の形になる。サーバ描画と同じ条件を必ず通す。
   const hazard = url.searchParams.get('hz') || null;
-  const { mode } = await getMode();
+  // モードは引かない。カテゴリはクライアントが送ってくるものをそのまま使う。
+  // 以前はここで getMode() を呼んで findSpots に渡していたが、findSpots は
+  // それを見ておらず、閲覧のたびに site_state を1回引くだけの無駄になっていた。
+  // この経路は force-dynamic かつ no-store で、災害時にCDNを通らず全部ここに来る。
   const spots = await findSpots({
-    mode,
     categories,
     lat: validLoc ? lat : undefined,
     lng: validLoc ? lng : undefined,

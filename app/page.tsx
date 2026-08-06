@@ -91,7 +91,6 @@ export default async function Home({
   const spots = query
     ? await searchSpots({ q: query, categories: targetCategories, limit: 50 })
     : await findSpots({
-        mode,
         categories: targetCategories,
         municipality: selectedMuni,
         hazard,

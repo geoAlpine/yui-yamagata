@@ -37,8 +37,19 @@ export interface SpotRow {
  * トップを地図ではなくリストにしているのは、災害時に地図タイルが重すぎるため
  * （DESIGN.md 5.1）。距離順のリストで「近くのどこが開いてるか」には十分答えられる。
  */
+/**
+ * スポットの一覧。
+ *
+ * モードは受け取らない。出すカテゴリを決めるのは呼び出し側の責務で、
+ * ページ側が `categoriesForMode(mode)` を通した結果を `categories` に渡す。
+ *
+ * 以前は `mode` を引数に持っていたが、この関数は一度も参照していなかった。
+ * 「モードを渡したのだからサーバ側で絞られる」と読める形は、効いていない
+ * 絞り込みを信じて利用者入力をそのまま流す事故を招く。同じ形の失敗は
+ * 災害種別（hazard）で既に踏んでいる（app/api/spots/route.ts のコメント）。
+ * 効かない引数は置かない。
+ */
 export async function findSpots(opts: {
-  mode: Mode;
   categories: string[];
   lat?: number;
   lng?: number;

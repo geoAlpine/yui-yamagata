@@ -146,12 +146,24 @@ async function deactivateVanished(pool, rows, dry) {
     [CATEGORIES]
   );
 
+  /*
+    黙って0を返さない。
+    「確認して0件だった」と「そもそも確認していない」が同じ見た目になると、
+    取り込みが空振りしている月に気づけない。このスクリプトで唯一データを
+    減らす処理なので、毎回なにをしたか言わせる。
+  */
+  if (!cur.rows.length) {
+    process.stdout.write('\n失効の確認: 取り込み済みスポットがDBにありません（初回の取り込みとみなします）\n');
+    return 0;
+  }
+
   const targets = [];
   const held = [];
+  let total = 0;
   for (const { category, n } of cur.rows) {
     const got = fetched[category] ?? 0;
     if (got < n * SHRINK_FLOOR) held.push({ category, n, got });
-    else targets.push(category);
+    else { targets.push(category); total += n; }
   }
 
   if (held.length) {
@@ -162,7 +174,10 @@ async function deactivateVanished(pool, rows, dry) {
     process.stdout.write('  Overpassが部分的な結果を返した可能性があります。取り込み元を確認してください。\n');
   }
 
-  if (!targets.length) return 0;
+  if (!targets.length) {
+    process.stdout.write('\n失効の確認: 全カテゴリを見送ったため、失効させたものはありません\n');
+    return 0;
+  }
 
   // osm_id は JSON では数値だが、bigint[] に渡すので文字列にしておく
   const params = [targets, rows.map((r) => r.osmType), rows.map((r) => String(r.osmId))];
@@ -173,7 +188,12 @@ async function deactivateVanished(pool, rows, dry) {
     params
   );
 
-  if (!q.rows.length) return 0;
+  if (!q.rows.length) {
+    process.stdout.write(
+      `\n失効の確認: ${targets.length}カテゴリ${total}件を照合、OSMから消えたスポットはありませんでした\n`
+    );
+    return 0;
+  }
 
   const names = {};
   for (const r of q.rows) (names[r.category] ??= []).push(r.name);
@@ -185,15 +205,55 @@ async function deactivateVanished(pool, rows, dry) {
   return q.rows.length;
 }
 
+/**
+ * Overpass への問い合わせ。一発で通る前提に立てない。
+ *
+ * 混雑時に 429（レート制限）や 504（ゲートウェイタイムアウト）を返す。
+ * 実際に本番の月次更新で 504 を踏み、再試行が無いためそこで終わっていた。
+ * 待ち時間は指数で伸ばす。混んでいるサーバを等間隔で叩いても状況は変わらない。
+ *
+ * 400番台はクエリ自体の誤りなので、待っても直らない。即座にやめる。
+ */
+const RETRY_WAITS_MS = [30_000, 60_000, 120_000, 300_000]; // 最大5回試行
+
+async function fetchOverpass() {
+  let last;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(OVERPASS, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain', 'user-agent': 'yamagata-bousai-import/0.1' },
+        body: QUERY,
+      });
+      if (!res.ok) {
+        const e = new Error(`Overpass ${res.status}`);
+        e.fatal = res.status !== 429 && res.status < 500;
+        throw e;
+      }
+      const data = await res.json();
+      /*
+        200 でも remark を添えて途中で打ち切ることがある（"runtime error: Query timed out"）。
+        これを黙って受けると、欠けた分を「大量に閉店した」と誤認する。
+        失効処理にカテゴリ単位のガードはあるが、その手前で弾いておく。
+      */
+      if (data.remark) throw new Error(`Overpass の警告: ${String(data.remark).slice(0, 200)}`);
+      return data;
+    } catch (e) {
+      last = e;
+      const wait = RETRY_WAITS_MS[attempt - 1];
+      if (e.fatal || wait == null) break;
+      process.stdout.write(
+        `  ${e.message} — ${wait / 1000}秒待って再試行します（${attempt}/${RETRY_WAITS_MS.length + 1}）\n`
+      );
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw last;
+}
+
 async function main() {
   process.stdout.write('Overpass に問い合わせ中…\n');
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain', 'user-agent': 'yamagata-bousai-import/0.1' },
-    body: QUERY,
-  });
-  if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data = await res.json();
+  const data = await fetchOverpass();
   process.stdout.write(`  取得: ${data.elements.length} 要素\n`);
 
   const rows = [];

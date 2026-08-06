@@ -24,6 +24,12 @@ LOGDIR="$ROOT/logs"
 mkdir -p "$LOGDIR" || exit 1
 LOG="$LOGDIR/jma-$(date +%Y%m).log"
 
+# --test-mail は結果を必ず表示する（人が確かめるために叩くもの）
+if [[ " $* " == *" --test-mail "* ]]; then
+  node scripts/watch_jma.mjs "$@"
+  exit $?
+fi
+
 out=$(node scripts/watch_jma.mjs "$@" 2>&1)
 rc=$?
 

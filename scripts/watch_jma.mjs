@@ -33,6 +33,16 @@ import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const DRY = process.argv.includes('--dry');
+/**
+ * 通知が実際に届くかを平時に確かめるための試験送信。
+ *
+ *   node scripts/watch_jma.mjs --test-mail
+ *
+ * 災害時にしか送らないメールは、届かないことに気づく機会がない。
+ * 差出人・件名の符号化・SPF・迷惑メール判定のどれが原因でも、
+ * 気づくのは災害の当日になる。年に一度は通しておく。
+ */
+const TEST_MAIL = process.argv.includes('--test-mail');
 const PREF = '山形県';
 
 const FEEDS = {
@@ -66,7 +76,18 @@ async function fetchFeed(pool, key) {
   if (prev.last_modified) headers['if-modified-since'] = prev.last_modified;
 
   const res = await fetch(FEEDS[key], { headers, signal: AbortSignal.timeout(20_000) });
-  if (res.status === 304) return null;
+
+  // 304（変化なし）でも「確認した」ことは残す。
+  // これを怠ると checked_at が更新されず、外から見て
+  // 「cronが止まっている」のか「気象庁に変化がない」のか区別できない。
+  // 平時は何も起きない仕組みなので、動いていることを確認する手段が要る。
+  if (res.status === 304) {
+    await pool.query(
+      `UPDATE jma_feed SET checked_at=now(), failures=0, last_error=NULL WHERE feed=$1`,
+      [key]
+    );
+    return null;
+  }
   if (!res.ok) throw new Error(`${key}: HTTP ${res.status}`);
 
   const body = await res.text();
@@ -158,19 +179,38 @@ export function judgeWarning(xml) {
   return null;
 }
 
-/** メールで知らせる。postfix が動いているので sendmail に流す */
+/**
+ * メールで知らせる。postfix が動いているので sendmail に流す。
+ *
+ * ── 件名は必ず符号化する ──
+ * 日本語をそのまま渡すと postfix が SMTPUTF8 を要求し、
+ * 対応していない受信側（さくら等）で bounce する。
+ * RFC 2047 の Base64 にしておけば ASCII だけで送れる。
+ *
+ * ── 差出人を明示する ──
+ * 既定では deploy-yui@<ホスト名> になる。ホスト名がIPアドレス由来のままだと、
+ * 受信側で迷惑メール扱いされやすい。運用しているドメインを名乗る。
+ * あわせて yui-yamagata.com の SPF にこのサーバを入れておくこと
+ * （docs/cloudflare.md 参照）。入れないと SPF 不一致で弾かれうる。
+ *
+ * 災害時にしか送らないメールなので、届かないことに気づく機会がない。
+ * 平時のうちに実際に届くところまで確かめる。
+ */
 function notify(subject, body) {
   const to = process.env.NOTIFY_EMAIL;
   if (!to || DRY) return;
+  const from = process.env.NOTIFY_FROM ?? 'noreply@yui-yamagata.com';
   const mail = [
+    `From: =?UTF-8?B?${Buffer.from('やまがた結（ゆい）').toString('base64')}?= <${from}>`,
     `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
     'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: 8bit',
     '',
     body,
   ].join('\n');
   try {
-    const p = spawn('/usr/sbin/sendmail', ['-t'], { stdio: ['pipe', 'ignore', 'ignore'] });
+    const p = spawn('/usr/sbin/sendmail', ['-t', '-f', from], { stdio: ['pipe', 'ignore', 'ignore'] });
     p.stdin.write(mail);
     p.stdin.end();
   } catch {
@@ -205,6 +245,21 @@ async function switchToDisaster(pool, reason, hazard) {
 }
 
 async function main() {
+  if (TEST_MAIL) {
+    const to = process.env.NOTIFY_EMAIL;
+    if (!to) { process.stderr.write('NOTIFY_EMAIL が未設定です\n'); process.exit(1); }
+    notify(
+      '【やまがた結】通知の試験送信',
+      '災害モードの自動切替で使う通知経路の確認です。\n\n' +
+        'このメールが届いていれば、山形県で震度5弱以上または特別警報が\n' +
+        '発表されたとき、同じ経路で連絡が届きます。\n\n' +
+        '迷惑メールフォルダに入っていた場合は、受信できるよう設定してください。\n' +
+        '災害時にこの通知を見落とすと、切替に気づけません。\n'
+    );
+    process.stdout.write(`  ${to} へ試験送信しました。届いたか確認してください\n`);
+    return;
+  }
+
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
   for (const key of Object.keys(FEEDS)) {

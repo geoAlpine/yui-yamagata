@@ -153,6 +153,46 @@ sudo ufw status | grep -c 104.  # 0 であるべき
 Edge TTL の「Override origin」を確認する（origin が `no-store` を返すため、
 `Respect origin` では絶対にキャッシュされない）。
 
+## 通知メールのための SPF
+
+災害モードの自動切替は `info@geoalpine.net` へメールで知らせる
+（`scripts/watch_jma.mjs`）。差出人は `noreply@yui-yamagata.com` を名乗る。
+
+**このままだと SPF 不一致で弾かれる。** Cloudflare の DNS に TXT を1件足す。
+
+| 種別 | 名前 | 内容 | プロキシ |
+|---|---|---|---|
+| TXT | `@` | `v=spf1 ip4:210.131.217.236 -all` | （TXTに設定なし） |
+
+`-all` は「ここに書いたIP以外からの yui-yamagata.com 名義のメールは
+受け取るな」という意味。このドメインからメールを出すのはこのサーバだけなので、
+厳しくしてよい。将来メール配信サービスを使うなら、そのIPを足す。
+
+### 届くところまで確かめる
+
+**災害時にしか送らないメールは、届かないことに気づく機会がない。**
+差出人・件名の符号化・SPF・迷惑メール判定のどれが原因でも、
+気づくのは災害の当日になる。
+
+```bash
+sudo -u deploy-yui /var/www/yui/production/current/deploy/watch-jma.sh production --test-mail
+```
+
+実際に届いたか、迷惑メールフォルダに入っていないかまで見る。
+**年に一度は通しておく**（`docs/disaster-runbook.md` のリハーサルに含める）。
+
+### 過去に踏んだこと
+
+件名に日本語をそのまま渡すと postfix が SMTPUTF8 を要求し、
+対応していない受信側（さくら等）で bounce する。
+
+```
+status=bounced (SMTPUTF8 is required, but was not offered by host ...)
+```
+
+件名は RFC 2047 の Base64 に符号化する。`mail -s "日本語"` で
+手軽に送ると、この形で落ちる。
+
 ## 元に戻す
 
 ```bash

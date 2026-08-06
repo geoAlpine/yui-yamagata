@@ -33,7 +33,7 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { mode, notice } = await getMode();
+  const { mode, notice, autoReason } = await getMode();
 
   return (
     <html lang="ja">
@@ -67,6 +67,14 @@ export default async function RootLayout({
               住民の目撃情報です。公式情報ではありません。
             </p>
           </div>
+          {/*
+            自動で災害モードに切り替わったときは、その根拠を出す。
+            ある朝いきなり画面の作りが変わっていて理由が書かれていなければ、
+            それ自体が不安の種になる。気象庁の発表であることを明示する。
+          */}
+          {mode === 'disaster' && autoReason ? (
+            <div className="auto-reason">{autoReason}にもとづき、災害時の表示にしています</div>
+          ) : null}
           {notice ? <div className="notice-strip">{notice}</div> : null}
         </header>
 

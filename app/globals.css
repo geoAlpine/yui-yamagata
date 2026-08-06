@@ -859,3 +859,16 @@ h2 { font-size: 18px; margin: 26px 0 9px; }
 }
 .about-dl dt:first-child { margin-top: 0; }
 .about-dl dd { margin: 3px 0 0; line-height: 1.75; }
+
+/*
+  自動切替の根拠。お知らせ（notice-strip）より控えめにする。
+  読んでほしいのは自治体からのお知らせのほうで、これは背景説明。
+*/
+.auto-reason {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  padding: 7px 14px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}

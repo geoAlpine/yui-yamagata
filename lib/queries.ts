@@ -315,11 +315,28 @@ export async function insertNotice(input: {
   return rows[0];
 }
 
-export async function getMode(): Promise<{ mode: Mode; notice: string | null }> {
-  const rows = await query<{ mode: Mode; notice: string | null }>(
-    `SELECT mode, notice FROM site_state WHERE id = true`
+export async function getMode(): Promise<{
+  mode: Mode;
+  notice: string | null;
+  /**
+   * 気象庁の発表で自動的に災害モードへ切り替えた理由。
+   * 手動で切り替えたときは null。
+   *
+   * 利用者に見せる。ある朝いきなり画面の作りが変わっていて、
+   * 理由が書かれていなければ、それ自体が不安の種になる。
+   * 「なぜこの表示なのか」を隠さない。
+   */
+  autoReason: string | null;
+}> {
+  const rows = await query<{ mode: Mode; notice: string | null; auto_reason: string | null }>(
+    `SELECT mode, notice, auto_reason FROM site_state WHERE id = true`
   );
-  return rows[0] ?? { mode: 'standby', notice: null };
+  const r = rows[0];
+  return {
+    mode: r?.mode ?? 'standby',
+    notice: r?.notice ?? null,
+    autoReason: r?.auto_reason ?? null,
+  };
 }
 
 export async function insertObservation(input: {

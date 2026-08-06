@@ -1,0 +1,20 @@
+# /etc/cron.d/yui-jma
+#
+# 気象庁の防災情報を毎分確認し、災害モードを自動で切り替える。
+#
+# 毎分にしているのは、震度速報が地震の約1分半後に出るため。
+# 5分間隔にすると、揺れてから最大6分半、平時モードのままになる。
+# 地震直後にいちばん人が来る時間帯を逃す。
+#
+# 気象庁のフィードは cache-control: max-age=60 を返し、ETag に対応している。
+# 変化がなければ 304 で終わるので、毎分でも負荷にならない。
+#
+# ステージングは回さない。同じ発表で2通の通知が来ると、
+# どちらが本番か分からなくなる。
+#
+# ※ /etc/cron.d には immutable 属性が付いている。設置は
+#      chattr -i /etc/cron.d → 配置 → chattr +i /etc/cron.d
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+* * * * * deploy-yui /var/www/yui/production/current/deploy/watch-jma.sh production

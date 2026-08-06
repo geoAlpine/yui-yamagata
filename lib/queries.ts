@@ -195,7 +195,15 @@ export interface ObservationRow {
   disagrees: number;
 }
 
-export async function getSpot(id: string) {
+/**
+ * スポット1件。
+ *
+ * 既定では有効なものしか返さない。報告の受け口（/report と observations API）が
+ * 掲載を終了した場所を受け付けてしまうと、誰も行かない場所に報告が積もる。
+ * includeInactive を渡すのは詳細ページだけで、そこは「掲載を終了しました」と
+ * 表示するために失効分を必要とする（404にすると /mine の履歴が行き止まりになる）。
+ */
+export async function getSpot(id: string, includeInactive = false) {
   const rows = await query<{
     id: string;
     name: string;
@@ -204,13 +212,14 @@ export async function getSpot(id: string) {
     is_priority: boolean;
     note: string | null;
     hazards: string[] | null;
+    is_active: boolean;
     lat: number;
     lng: number;
   }>(
-    `SELECT id, name, category, address, is_priority, note, hazards,
+    `SELECT id, name, category, address, is_priority, note, hazards, is_active,
             ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng
-     FROM spots WHERE id = $1 AND is_active`,
-    [id]
+     FROM spots WHERE id = $1 AND (is_active OR $2)`,
+    [id, includeInactive]
   );
   return rows[0] ?? null;
 }

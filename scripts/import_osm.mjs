@@ -11,6 +11,19 @@
  * spots は (osm_type, osm_id) で upsert する。消して作り直してはいけない。
  * observations が ON DELETE CASCADE で連鎖削除され、住民の報告が消えるため。
  *
+ * ── 消えたスポットの扱い ──
+ * 取り込みが「足すだけ」だと、閉店した店が営業中の候補として並んだまま
+ * 災害を迎える。当初その状態だった（月次更新を回しても件数が単調増加する）。
+ * そこで、今回のOSM応答に現れなかった取り込み済みスポットは失効させる。
+ *
+ * 失効は is_active=false であって DELETE ではない。行を消すと observations が
+ * 連鎖削除されて住民の報告が失われる。再びOSMに現れれば upsert 側で
+ * is_active=true に戻るので、判断は常にやり直せる。
+ *
+ * ただしOverpassは混雑時に部分的な結果を返す。それを「全部閉店した」と
+ * 解釈すると本番のスポットが一斉に消える。カテゴリごとに既存件数と比べ、
+ * 大きく下回った回は失効処理を見送る（SHRINK_FLOOR）。
+ *
  * ── 何を取り込み、何を取り込まないか ──
  * 取り込むのは「災害時にその場所の“状況”を報告する意味があるもの」に限る。
  * 例えば amenity=drinking_water（常設の水飲み場）は取り込まない。
@@ -38,6 +51,18 @@ area["ISO3166-2"="JP-06"]->.a;
 );
 out center tags;
 `;
+
+/**
+ * このスクリプトが扱うカテゴリ。失効処理をこの範囲に限る。
+ * classify() が返しうる値と一致させること。
+ */
+const CATEGORIES = ['gas', 'store', 'medical', 'cash', 'toilet', 'charge', 'laundry'];
+
+/**
+ * 取得件数が既存件数のこの割合を下回ったカテゴリは失効処理を見送る。
+ * 「一晩で2割の店が消える」ことは現実には起きない。起きたなら取り込み元の障害。
+ */
+const SHRINK_FLOOR = 0.8;
 
 /** OSMのタグ → 本サイトのカテゴリ。該当しなければ null で捨てる */
 function classify(t) {
@@ -89,6 +114,77 @@ function noteOf(t, category) {
   return bits.length ? bits.join('・').slice(0, 60) : null;
 }
 
+/**
+ * 「今回の応答に無かった取り込み済みスポット」の条件。
+ *
+ * source='imported' かつ osm_id を持つものだけを見る。国土地理院の避難所
+ * （source='official' / gsi_id）、応急給水拠点、利用者が作ったスポットは
+ * OSMに載っていなくて当然なので、巻き込むと全部消える。
+ */
+const VANISHED_WHERE = `
+      source = 'imported' AND osm_id IS NOT NULL AND is_active
+  AND category = ANY($1::text[])
+  AND NOT EXISTS (
+        SELECT 1 FROM unnest($2::text[], $3::bigint[]) AS seen(t, i)
+         WHERE seen.t = spots.osm_type AND seen.i = spots.osm_id
+      )`;
+
+/**
+ * OSMから消えたスポットを失効させる。dry のときは対象を出すだけで書き込まない。
+ * 返り値は失効させた（させる予定の）件数。
+ */
+async function deactivateVanished(pool, rows, dry) {
+  const fetched = {};
+  for (const r of rows) fetched[r.category] = (fetched[r.category] ?? 0) + 1;
+
+  const cur = await pool.query(
+    `SELECT category, count(*)::int AS n
+       FROM spots
+      WHERE source = 'imported' AND osm_id IS NOT NULL AND is_active
+        AND category = ANY($1::text[])
+      GROUP BY category`,
+    [CATEGORIES]
+  );
+
+  const targets = [];
+  const held = [];
+  for (const { category, n } of cur.rows) {
+    const got = fetched[category] ?? 0;
+    if (got < n * SHRINK_FLOOR) held.push({ category, n, got });
+    else targets.push(category);
+  }
+
+  if (held.length) {
+    process.stdout.write('\n★失効処理を見送ったカテゴリ（取得数が既存を大きく下回りました）:\n');
+    for (const h of held) {
+      process.stdout.write(`  ${h.category.padEnd(10)} 既存 ${h.n} → 取得 ${h.got}\n`);
+    }
+    process.stdout.write('  Overpassが部分的な結果を返した可能性があります。取り込み元を確認してください。\n');
+  }
+
+  if (!targets.length) return 0;
+
+  // osm_id は JSON では数値だが、bigint[] に渡すので文字列にしておく
+  const params = [targets, rows.map((r) => r.osmType), rows.map((r) => String(r.osmId))];
+  const q = await pool.query(
+    dry
+      ? `SELECT name, category FROM spots WHERE ${VANISHED_WHERE} ORDER BY category, name`
+      : `UPDATE spots SET is_active = false WHERE ${VANISHED_WHERE} RETURNING name, category`,
+    params
+  );
+
+  if (!q.rows.length) return 0;
+
+  const names = {};
+  for (const r of q.rows) (names[r.category] ??= []).push(r.name);
+  process.stdout.write(dry ? '\n失効させる予定:\n' : '\n失効（OSMから消えたスポット）:\n');
+  for (const [k, v] of Object.entries(names).sort((a, b) => b[1].length - a[1].length)) {
+    const head = v.slice(0, 5).join('、') + (v.length > 5 ? ' ほか' : '');
+    process.stdout.write(`  ${k.padEnd(10)} ${String(v.length).padStart(5)}  ${head}\n`);
+  }
+  return q.rows.length;
+}
+
 async function main() {
   process.stdout.write('Overpass に問い合わせ中…\n');
   const res = await fetch(OVERPASS, {
@@ -138,6 +234,18 @@ async function main() {
   process.stdout.write(`\n除外: 対象外タグ ${skipped.unclassified} / 無名 ${skipped.unnamed} / 座標なし ${skipped.nocoord}\n`);
 
   if (DRY) {
+    // 失効の見込みだけは既存データと突き合わせないと出せない。読むだけで書かない。
+    // 失効はこのスクリプトで唯一データを減らす処理なので、事前に見えることに意味がある。
+    if (process.env.DATABASE_URL) {
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      try {
+        await deactivateVanished(pool, rows, true);
+      } finally {
+        await pool.end();
+      }
+    } else {
+      process.stdout.write('\nDATABASE_URL が無いため、失効の見込みは出せません。\n');
+    }
     process.stdout.write('\n--dry のため書き込みませんでした。\n');
     return;
   }
@@ -157,15 +265,20 @@ async function main() {
          location = EXCLUDED.location,
          address = COALESCE(EXCLUDED.address, spots.address),
          municipality = COALESCE(EXCLUDED.municipality, spots.municipality),
-         note = COALESCE(EXCLUDED.note, spots.note)
+         note = COALESCE(EXCLUDED.note, spots.note),
+         -- OSMに戻ってきたものは復活させる。マッパーの誤削除や、Overpassの
+         -- 部分応答で誤って失効させた場合に、次の回で自動的に元へ戻る
+         is_active = true
        RETURNING (xmax = 0) AS is_insert`,
       [r.name, r.category, r.lat, r.lng, r.address, r.municipality, r.note, r.osmType, r.osmId]
     );
     if (q.rows[0].is_insert) inserted++; else updated++;
   }
 
+  const gone = await deactivateVanished(pool, rows, false);
+
   const total = await pool.query(`SELECT count(*)::int AS n FROM spots WHERE is_active`);
-  process.stdout.write(`\n新規 ${inserted} / 更新 ${updated}\n`);
+  process.stdout.write(`\n新規 ${inserted} / 更新 ${updated} / 失効 ${gone}\n`);
   process.stdout.write(`スポット総数: ${total.rows[0].n}\n`);
   await pool.end();
 }

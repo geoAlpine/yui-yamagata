@@ -22,9 +22,17 @@ export async function generateMetadata({
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const spot = await getSpot(id);
+  const spot = await getSpot(id, true);
   if (!spot) return buildMetadata({ title: SITE_NAME, description: '', noindex: true });
   const cat = getCategory(spot.category);
+  // 掲載を終了した場所を「今の状況」と説明すると、共有カードだけが実態と食い違う
+  if (!spot.is_active) {
+    return buildMetadata({
+      title: `${spot.name}（掲載終了）| ${SITE_NAME}`,
+      description: `${spot.name}は閉店・廃止などにより掲載を終了しました。`,
+      noindex: true,
+    });
+  }
   return buildMetadata({
     title: `${spot.name}（${cat?.label ?? ''}）| ${SITE_NAME}`,
     description:
@@ -41,17 +49,139 @@ function fmtTime(iso: string | Date) {
   ).padStart(2, '0')}`;
 }
 
+/*
+  削除ではなく履歴として残す。
+  「12:00 開いてた → 15:00 閉まってた」という推移そのものが情報になる（DESIGN.md 3.1）。
+
+  掲載を終了した場所でも同じものを出す。住民が自分の報告履歴からたどり着いたとき、
+  「自分が見た記録」まで消えていると、報告した意味そのものが無くなる。
+*/
+function History({
+  category,
+  observations,
+}: {
+  category: string;
+  observations: Awaited<ReturnType<typeof getObservations>>;
+}) {
+  return (
+    <>
+      <h2>これまでの報告</h2>
+      {observations.length === 0 ? (
+        <p className="sub">まだ報告がありません。</p>
+      ) : (
+        <ul className="history">
+          {observations.map((o) => {
+            const s = getStatus(category, o.status);
+            return (
+              <li key={o.id}>
+                <span className="t">{fmtTime(o.observed_at)}</span>
+                <span className="h-body">
+                  <strong style={{ color: `var(--${s?.severity ?? 'unknown'})` }}>
+                    {s?.label ?? o.status}
+                  </strong>
+                  {o.note ? <span className="sub"> — {o.note}</span> : null}
+                  {o.agrees > 0 && (
+                    <span className="sub"> ・{o.agrees}人が同意</span>
+                  )}
+                </span>
+                {/*
+                  過去の報告に付いた写真も出す。
+                  同じ場所に複数人が投稿したとき、最新の1枚だけ見せていたら
+                  「9時は5人待ち → 11時は50人」という推移が消える。
+                  写真が集まる場面こそ写真の価値が高い。
+
+                  ここもサムネイル。原寸を履歴の数だけ並べたら詳細ページが
+                  数MBになる。原寸はページ上部の最新1枚だけ。
+                */}
+                {o.photo_path && (
+                  <a className="h-photo" href={`/uploads/${o.photo_path}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/uploads/${thumbPath(o.photo_path)}`}
+                      alt={`${fmtTime(o.observed_at)}の様子`}
+                      width={56}
+                      height={56}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </a>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
 export default async function SpotPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const spot = await getSpot(id);
+  const spot = await getSpot(id, true);
   if (!spot) notFound();
 
   const observations = await getObservations(spot.id);
   const cat = getCategory(spot.category);
+
+  /*
+    掲載終了。OSMから消えた＝閉店・廃止とみなして失効させた場所
+    （scripts/import_osm.mjs の失効処理）。
+
+    404にはしない。自分の報告履歴（/mine）からたどった住民が行き止まりになるうえ、
+    「消えた」のか「そんな場所は無かった」のか区別できない。
+    履歴は見せたまま、報告の導線だけ閉じる。
+  */
+  if (!spot.is_active) {
+    return (
+      <>
+        <p style={{ marginTop: 14 }}>
+          <Link href="/">← 一覧にもどる</Link>
+        </p>
+
+        <h1 style={{ fontSize: 20, margin: '10px 0 4px' }}>{spot.name}</h1>
+        <p className="sub">
+          {cat?.label}
+          {spot.address ? ` ・ ${spot.address}` : ''}
+        </p>
+
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="status unknown">掲載を終了しました</div>
+          <p className="note">
+            閉店・廃止などにより、この場所は一覧に出なくなりました。
+            いまの状況を報告することはできません。
+          </p>
+
+          {/*
+            ここで行き止まりにしない。営業していたり別の店に変わっていたりするのは
+            現地を見た住民のほうが先に知る。追加してもらうのが最短の訂正手段になる。
+          */}
+          <div style={{ marginTop: 14 }}>
+            <Link className="btn primary block" href="/spots/new">
+              場所を追加する
+            </Link>
+          </div>
+          <p className="sub" style={{ marginTop: 8 }}>
+            まだ営業している、別の店に変わっているなどの場合は、
+            場所として追加してください。
+          </p>
+        </div>
+
+        <History category={spot.category} observations={observations} />
+
+        {/* 事前審査をしない以上、利用者が「おかしい」と言える口が要る */}
+        <ReportAbuse observationId={observations[0]?.id} spotId={spot.id} />
+
+        <p className="sub" style={{ marginTop: 20 }}>
+          この情報は住民の目撃情報です。公式情報ではありません。
+        </p>
+      </>
+    );
+  }
+
   const latest = observations[0];
   const fresh = latest
     ? evaluateFreshness(spot.category, latest.observed_at)
@@ -155,56 +285,7 @@ export default async function SpotPage({
         </p>
       </div>
 
-      {/*
-        削除ではなく履歴として残す。
-        「12:00 開いてた → 15:00 閉まってた」という推移そのものが情報になる（DESIGN.md 3.1）。
-      */}
-      <h2>これまでの報告</h2>
-      {observations.length === 0 ? (
-        <p className="sub">まだ報告がありません。</p>
-      ) : (
-        <ul className="history">
-          {observations.map((o) => {
-            const s = getStatus(spot.category, o.status);
-            return (
-              <li key={o.id}>
-                <span className="t">{fmtTime(o.observed_at)}</span>
-                <span className="h-body">
-                  <strong style={{ color: `var(--${s?.severity ?? 'unknown'})` }}>
-                    {s?.label ?? o.status}
-                  </strong>
-                  {o.note ? <span className="sub"> — {o.note}</span> : null}
-                  {o.agrees > 0 && (
-                    <span className="sub"> ・{o.agrees}人が同意</span>
-                  )}
-                </span>
-                {/*
-                  過去の報告に付いた写真も出す。
-                  同じ場所に複数人が投稿したとき、最新の1枚だけ見せていたら
-                  「9時は5人待ち → 11時は50人」という推移が消える。
-                  写真が集まる場面こそ写真の価値が高い。
-
-                  ここもサムネイル。原寸を履歴の数だけ並べたら詳細ページが
-                  数MBになる。原寸はページ上部の最新1枚だけ。
-                */}
-                {o.photo_path && (
-                  <a className="h-photo" href={`/uploads/${o.photo_path}`}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/uploads/${thumbPath(o.photo_path)}`}
-                      alt={`${fmtTime(o.observed_at)}の様子`}
-                      width={56}
-                      height={56}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </a>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <History category={spot.category} observations={observations} />
 
       {/* 事前審査をしない以上、利用者が「おかしい」と言える口が要る */}
       <ReportAbuse observationId={latest?.id} spotId={spot.id} />

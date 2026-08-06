@@ -9,4 +9,3 @@ export type JmaVerdict =
 
 export function judgeQuake(xml: string): JmaVerdict;
 export function judgeWarning(xml: string): JmaVerdict;
-export function hasActiveWarning(xml: string): boolean;

@@ -14,17 +14,14 @@
  * 被災していたら、誰も切り替えられない。災害のために作ったサイトが
  * 災害時に平時モードのままになる。これがいちばん避けたい失敗。
  *
- * ── 戻すほうが難しい ──
- * 災害モードが本当に必要なのは発災の数時間後から数日後。
- * 気象庁の情報が落ち着いた時点で戻すと、断水や物資不足が続いている
- * いちばん必要な時期に平時モードへ戻ってしまう。
+ * ── 戻すのは手動だけ ──
+ * 自動では絶対に戻さない。非対称にするのが要点。
  *
- * そこで戻す条件を「気象庁の情報」ではなく「実際に使われているか」に置く。
- *   1. 自動で切り替えたものだけを戻す（人が切り替えたものには触らない）
- *   2. 切替から72時間以上たっている
- *   3. 山形県に有効な警報・特別警報が無い
- *   4. 直近24時間に新しい報告が1件も無い（＝誰も使っていない）
- * 4つすべてを満たしたときだけ戻す。ひとつでも欠けたら災害モードのまま。
+ * 災害モードが本当に必要なのは発災の数時間後から数日後。気象庁の情報が
+ * 落ち着いた時点で戻すと、断水や物資不足が続いているいちばん必要な時期に
+ * 平時モードへ戻ってしまう。「もう大丈夫」を機械に判断させない。
+ *
+ * 戻すのは、状況が収まったことを人が確かめてから /admin で行う。
  *
  * ── 気象庁が落ちていたら何もしない ──
  * 取得に失敗しても現状維持。勝手に平時へ戻さない。
@@ -49,11 +46,6 @@ const FEEDS = {
 const SWITCH_INTENSITIES = new Set(['5-', '5+', '6-', '6+', '7']);
 /** 通知だけする震度 */
 const NOTIFY_INTENSITIES = new Set(['4']);
-
-/** 自動で平時に戻すまでの最短時間 */
-const MIN_DISASTER_HOURS = 72;
-/** 「誰も使っていない」と判断するまでの無投稿時間 */
-const QUIET_HOURS = 24;
 
 const tag = (xml, name) => {
   const m = xml.match(new RegExp(`<${name}[^>]*>([^<]*)</${name}>`));
@@ -166,13 +158,6 @@ export function judgeWarning(xml) {
   return null;
 }
 
-/** いま山形県に有効な警報が出ているか（平時に戻してよいかの判断材料） */
-export function hasActiveWarning(xml) {
-  return [...xml.matchAll(/<Kind>([\s\S]*?)<\/Kind>/g)]
-    .map((m) => tag(m[1], 'Name') ?? '')
-    .some((k) => k.includes('警報'));
-}
-
 /** メールで知らせる。postfix が動いているので sendmail に流す */
 function notify(subject, body) {
   const to = process.env.NOTIFY_EMAIL;
@@ -213,71 +198,14 @@ async function switchToDisaster(pool, reason, hazard) {
     `${reason}\n\n` +
       `気象庁の発表を検知し、自動で災害モードに切り替えました。\n` +
       `https://yui-yamagata.com/admin\n\n` +
-      `平時に戻すのは手動です。\n` +
-      `自動では、切替から${MIN_DISASTER_HOURS}時間が経過し、\n` +
-      `かつ警報が解除され、かつ${QUIET_HOURS}時間新しい報告が無い場合にのみ戻ります。\n`
+      `平時（そなえ）に戻すのは手動です。自動では戻しません。\n` +
+      `状況が収まったことを確かめてから、管理画面で戻してください。\n`
   );
   return true;
 }
 
-/**
- * 平時に戻してよいかを判断する。
- * 4条件すべてを満たしたときだけ。ひとつでも欠けたら災害モードのまま。
- */
-async function maybeReturnToStandby(pool, warningXml) {
-  const { rows } = await pool.query(
-    `SELECT mode, auto_switched_at, auto_reason,
-            EXTRACT(EPOCH FROM (now() - auto_switched_at))/3600 AS hours
-     FROM site_state WHERE id = true`
-  );
-  const s = rows[0];
-  if (!s || s.mode !== 'disaster') return;
-
-  // 人が切り替えたものには触らない。意図があって切り替えている
-  if (!s.auto_switched_at) {
-    process.stdout.write('  手動で切り替えられた災害モード。自動では戻さない\n');
-    return;
-  }
-  const hours = Number(s.hours);
-  if (hours < MIN_DISASTER_HOURS) {
-    process.stdout.write(`  災害モード ${hours.toFixed(1)}時間。${MIN_DISASTER_HOURS}時間未満なので戻さない\n`);
-    return;
-  }
-  if (warningXml && hasActiveWarning(warningXml)) {
-    process.stdout.write('  山形県に警報が出ている。戻さない\n');
-    return;
-  }
-  const { rows: obs } = await pool.query(
-    `SELECT count(*)::int AS n FROM observations
-     WHERE created_at > now() - ($1 || ' hours')::interval`,
-    [QUIET_HOURS]
-  );
-  if (obs[0].n > 0) {
-    process.stdout.write(`  直近${QUIET_HOURS}時間に${obs[0].n}件の報告。まだ使われているので戻さない\n`);
-    return;
-  }
-
-  process.stdout.write('  ★平時（そなえ）へ戻す\n');
-  if (DRY) return;
-  await pool.query(
-    `UPDATE site_state
-     SET mode='standby', hazard=NULL, auto_switched_at=NULL,
-         auto_reason=NULL, updated_at=now()
-     WHERE id = true`
-  );
-  notify(
-    '【やまがた結】平時モードに戻しました',
-    `災害モードの開始から${Math.round(hours)}時間が経過し、\n` +
-      `警報が解除され、${QUIET_HOURS}時間新しい報告がありませんでした。\n\n` +
-      `自動で平時（そなえ）モードに戻しています。\n` +
-      `https://yui-yamagata.com/admin\n`
-  );
-}
-
 async function main() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  let switched = false;
-  let warningXml = null;
 
   for (const key of Object.keys(FEEDS)) {
     let feed;
@@ -307,13 +235,12 @@ async function main() {
         continue; // jma_seen に入れない。次回もう一度試す
       }
       const verdict = key === 'eqvol' ? judgeQuake(doc) : judgeWarning(doc);
-      if (key === 'extra' && doc.includes(PREF)) warningXml = doc;
 
       let action = 'ignored';
       if (verdict?.action === 'switch') {
         const when = new Date(e.published).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
         const reason = `${PREF}で${verdict.label}（気象庁 ${when} 発表）`;
-        if (await switchToDisaster(pool, reason, verdict.hazard)) switched = true;
+        await switchToDisaster(pool, reason, verdict.hazard);
         action = 'switched';
       } else if (verdict?.action === 'notify') {
         process.stdout.write(`    通知のみ: ${verdict.label}\n`);
@@ -336,9 +263,6 @@ async function main() {
       }
     }
   }
-
-  // 切り替えた直後に戻す判定をしない
-  if (!switched) await maybeReturnToStandby(pool, warningXml);
 
   if (!DRY) {
     await pool.query(`DELETE FROM jma_seen WHERE seen_at < now() - interval '30 days'`);

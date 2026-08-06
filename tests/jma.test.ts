@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   judgeQuake as rawQuake,
   judgeWarning as rawWarning,
-  hasActiveWarning,
 } from '../scripts/watch_jma.mjs';
 
 /** .mjs 側に型が無いので、テストで期待する形をここで宣言する */
@@ -22,6 +21,10 @@ const judgeWarning = rawWarning as (xml: string) => Verdict;
  *   <Pref><Name>熊本県</Name><Code>43</Code><MaxInt>1</MaxInt>
  *     <Area>...<City>...<IntensityStation>...
  * 震度は 5弱="5-" 5強="5+"。
+ *
+ * 平時に戻す判定はここに無い。自動では戻さないため（手動のみ）。
+ * 「もう大丈夫」を機械に判断させると、断水や物資不足が続いている
+ * いちばん必要な時期に平時モードへ戻ってしまう。
  */
 
 const pref = (name: string, maxInt: string) =>
@@ -109,9 +112,4 @@ test('警報: 土砂災害警戒情報・大雨警報は通知のみ', () => {
 
 test('警報: 注意報だけなら何もしない', () => {
   assert.equal(judgeWarning(warnDoc('雷注意報', '波浪注意報')), null);
-});
-
-test('平時に戻す判定: 警報が残っていれば戻さない', () => {
-  assert.equal(hasActiveWarning(warnDoc('大雨警報')), true);
-  assert.equal(hasActiveWarning(warnDoc('雷注意報')), false);
 });

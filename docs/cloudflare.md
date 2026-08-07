@@ -311,9 +311,22 @@ Cloudflare 側は、DNSレコードのプロキシをグレーに戻せば素通
 
 ## 残る課題
 
-- **origin のIPが露出したままになる。** Cloudflare を迂回して直接叩かれうる。
-  本来は firewall で Cloudflare のIPだけ許可するが、**同居する商用サイトは
-  Cloudflare を通っていないので、そのままでは巻き込む。**
-  やるなら 443 を Cloudflare 限定にはできず、サイト単位の対策が必要。
+- **origin のIP露出 → `deploy/apply-origin-lockdown.sh` で対処する。**
+  Cloudflare を迂回して直接叩ける。しかもIPは SPF レコード
+  （`v=spf1 ip4:210.131.217.236 -all`）で公開されており、dig 一発で分かる。
+  負荷試験では `/report` が **115 req/s** で飽和した。家庭回線1本で届く。
+
+  firewall で 443 を Cloudflare 限定にはできない。**同居する商用9サイトが
+  同じ 443 を使っており、全部巻き込む。** そのため nginx 側で、防災サイトの
+  `location /` だけに `geo $realip_remote_addr` の判定を入れる。
+
+  `$remote_addr` を見てはいけない。realip で CF-Connecting-IP に置き換わって
+  いるので、ヘッダを偽装するだけで素通しになる。書き換え前の
+  `$realip_remote_addr` で判定する。
+
+  `server` ではなく `location /` に入れるのは、証明書更新
+  （`certbot --nginx` が一時的に差し込む `/.well-known/acme-challenge/`）と
+  `/uploads/` を巻き込まないため。守りたいのは Next.js に流れる動的な経路で、
+  静的ファイルは nginx が直接返すので負荷が桁違いに軽い。
 - Let's Encrypt の更新は Cloudflare 経由でも通る（`/.well-known/` を
   キャッシュルールで塞がないこと）。

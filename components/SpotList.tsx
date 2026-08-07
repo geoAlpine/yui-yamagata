@@ -16,17 +16,32 @@ import type { SpotRow } from '@/lib/queries';
  * これにより JS が落ちても・位置情報を拒否しても、一覧は最初から読める。
  * 地図を既定にしないのは、災害時に地図タイルが真っ先に開けなくなるため（DESIGN.md 5.1）。
  */
+/**
+ * 位置情報をおよそ100mの格子に丸める。
+ *
+ * CDNのキャッシュキーはURLそのものなので、小数7桁のまま送ると利用者ごとに
+ * 別のURLになり、1件もヒットしない。3桁（緯度約110m・経度約88m）に落とすと、
+ * 同じ地区から見ている人どうしが同じURLを引く。
+ *
+ * ずれは最大70m程度。表示は「◯m / ◯.◯km」で、探しているのは近所の給油所や
+ * 給水所なので実用上の差は出ない。副次的に、CDNのログに残る位置の精度も落ちる。
+ */
+const cell = (n: number) => n.toFixed(3);
+
 export default function SpotList({
   initialSpots,
   categories,
   serverNow,
   emptyCategory,
+  hazard,
 }: {
   initialSpots: SpotRow[];
   categories: string[];
   serverNow: number;
   /** 単一カテゴリで絞り込んでいる場合のID。空のときの説明を出し分ける */
   emptyCategory?: string | null;
+  /** いま選ばれている災害種別。取り直しでも同じ条件を通すために要る */
+  hazard?: string | null;
 }) {
   const [locState, setLocState] = useState<
     'idle' | 'asking' | 'ok' | 'denied' | 'unavailable'
@@ -50,7 +65,9 @@ export default function SpotList({
   // 位置情報で取り直した結果。どの絞り込みに対する結果かを一緒に持つ。
   // props を state に写す effect を書くと、カテゴリを切り替えたときに
   // 古い結果が一瞬残る。どの条件の結果かを見て派生させれば effect は要らない。
-  const filterKey = categories.join(',');
+  // 災害種別も鍵に含める。カテゴリが同じまま種別だけ変えたとき、
+  // 前の種別で取り直した結果が残って表示されてしまう。
+  const filterKey = `${categories.join(',')}|${hazard ?? ''}`;
   const [fetched, setFetched] = useState<{ key: string; spots: SpotRow[] } | null>(null);
   const spots = fetched?.key === filterKey ? fetched.spots : initialSpots;
 
@@ -73,21 +90,23 @@ export default function SpotList({
   const sortByDistance = useCallback(
     (lat: number, lng: number) => {
       const q = new URLSearchParams({
-        lat: String(lat),
-        lng: String(lng),
+        lat: cell(lat),
+        lng: cell(lng),
         categories: categories.join(','),
       });
+      // サーバ描画と同じ条件を必ず通す。落とすと絞り込みが外れる
+      if (hazard) q.set('hz', hazard);
       fetch(`/api/spots?${q}`)
         .then((r) => r.json())
         .then((d) => {
           if (Array.isArray(d.spots)) {
-            setFetched({ key: categories.join(','), spots: d.spots });
+            setFetched({ key: filterKey, spots: d.spots });
           }
           setLocState('ok');
         })
         .catch(() => setLocState('unavailable'));
     },
-    [categories]
+    [categories, hazard, filterKey]
   );
 
   const requestLocation = useCallback(() => {

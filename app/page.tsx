@@ -273,6 +273,12 @@ export default async function Home({
         categories={targetCategories}
         serverNow={serverNow}
         emptyCategory={selected ?? null}
+        /*
+          災害種別を渡す。渡さないと「近い順」で取り直した瞬間に絞り込みが外れ、
+          上の「◯◯に対応する避難場所だけを表示しています」を出したまま
+          非対応の避難場所が混ざる。画面が嘘をつく形になる。
+        */
+        hazard={hazard}
       />
 
       {/*

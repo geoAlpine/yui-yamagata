@@ -8,7 +8,29 @@ import { getOrIssueIdentity, attachIdentity, clientIp } from '@/lib/identity';
 
 export const dynamic = 'force-dynamic';
 
-/** 位置情報が取れたときに「近い順」で取り直すための経路 */
+/**
+ * 位置情報が取れたときに「近い順」で取り直すための経路。
+ *
+ * ── CDNに載せる ──
+ * HTMLは next.config.ts で30秒キャッシュしているが、この経路は no-store だった。
+ * 位置情報を許可した人の閲覧ごとにVPSまで届くので、CDNを通らない読み取りとしては
+ * ここが最大になる。同居する商用サイトを巻き込まないためにも落としておきたい。
+ *
+ * 載せてよい根拠:
+ *   - 返すのは公開情報だけ。利用者ごとに変わる要素がない
+ *   - Set-Cookie を返さない。匿名IDの発行は POST 側だけ（lib/identity.ts）
+ *   - カテゴリのTTLは2〜24時間なので、30秒の遅れは無視できる
+ *
+ * 呼び出し側（components/SpotList.tsx）が座標を約100mに丸めて送る。
+ * CDNのキャッシュキーはURLなので、丸めないと利用者ごとに別物になり
+ * 1件もヒットしない。
+ *
+ * ★Cloudflare 側の Cache Rules で `/api/` を Bypass にしている。
+ *   このヘッダを効かせるには、GET /api/spots だけを除外する必要がある。
+ *   手順は docs/cloudflare.md「手順5: キャッシュルール」を参照。
+ */
+const CDN_CACHE = 'public, max-age=0, s-maxage=30, stale-while-revalidate=120';
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const lat = Number(url.searchParams.get('lat'));
@@ -18,7 +40,7 @@ export async function GET(req: Request) {
     .filter(Boolean);
 
   if (!categories.length) {
-    return NextResponse.json({ spots: [] });
+    return NextResponse.json({ spots: [] }, { headers: { 'cache-control': CDN_CACHE } });
   }
 
   // 山形県からあまりに離れた座標は無視して、全件を距離順に並べる意味のない計算を避ける
@@ -32,7 +54,6 @@ export async function GET(req: Request) {
   // モードは引かない。カテゴリはクライアントが送ってくるものをそのまま使う。
   // 以前はここで getMode() を呼んで findSpots に渡していたが、findSpots は
   // それを見ておらず、閲覧のたびに site_state を1回引くだけの無駄になっていた。
-  // この経路は force-dynamic かつ no-store で、災害時にCDNを通らず全部ここに来る。
   const spots = await findSpots({
     categories,
     lat: validLoc ? lat : undefined,
@@ -43,7 +64,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json(
     { spots },
-    { headers: { 'cache-control': 'no-store' } }
+    { headers: { 'cache-control': CDN_CACHE } }
   );
 }
 

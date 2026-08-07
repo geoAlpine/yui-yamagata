@@ -7,8 +7,15 @@
  *
  * ── なぜ要るか ──
  * `/api/` は Cloudflare 側で Bypass にしてある（docs/cloudflare.md ルール1）。
- * アプリが s-maxage を返すようにしても、この Bypass が先に当たるので効かない。
- * GET /api/spots だけを抜くルールを、Bypass より上に置く必要がある。
+ * アプリが s-maxage を返すようにしても、この Bypass に上書きされるので効かない。
+ * GET /api/spots だけを抜くルールを足す必要がある。
+ *
+ * ★★ Cache Rules は「最初に一致したものが勝つ」ではない ★★
+ * 一致したルールが上から順にすべて適用され、**後のルールが前を上書きする**。
+ * ファイアウォールのルールとは逆で、ここを取り違えて半日溶かした。
+ * したがって例外ルールは Bypass より**後ろ**（末尾）に置く。先頭に置くと、
+ * あとから来る Bypass に毎回上書きされ、cf-cache-status は DYNAMIC のまま
+ * 変わらない。しかも「ルールが一致していない」ように見えるので気づきにくい。
  *
  * ── なぜ既定が下見なのか ──
  * 他のスクリプトは既定で書き込み、--dry で下見だが、これは逆にしてある。
@@ -45,12 +52,21 @@ const RULE = {
   action: 'set_cache_settings',
   action_parameters: {
     cache: true,
-    // Override にしない。どれだけ持ってよいかを知っているのはアプリのほうで、
-    // app/api/spots/route.ts が s-maxage=30, stale-while-revalidate=120 を返す。
-    edge_ttl: { mode: 'respect_origin' },
+    // ★ここを省略してはいけない。
+    // 「Eligible for cache」だけ立てても、edge_ttl が無いと Cloudflare は
+    // 既定の判断（拡張子ベース）に戻り、JSON は対象外になって DYNAMIC のままになる。
+    // 実際にこれで一度ハマった。既存の cache-html ルールと同じ指定を明示する。
+    //
+    // bypass_by_default = 「cache-control があればそれに従い、無ければキャッシュしない」。
+    // override_origin にはしない。アプリが no-store と言ったら従うべきで、
+    // その原則が最後の砦になっている（app/api/spots/route.ts）。
+    edge_ttl: { mode: 'bypass_by_default' },
   },
   enabled: true,
 };
+
+/** 期待する edge_ttl。既存ルールがこれと違えば直す */
+const WANT_TTL_MODE = RULE.action_parameters.edge_ttl.mode;
 
 /** 消えていてはいけない Bypass。追加の前後で確認する */
 const MUST_BYPASS = ['/admin', '/mine'];
@@ -82,7 +98,7 @@ function bypassesPath(rules, path) {
   );
 }
 
-function show(rules) {
+function show(rules, verbose = false) {
   rules.forEach((r, i) => {
     const cache =
       r.action_parameters?.cache === false
@@ -90,11 +106,23 @@ function show(rules) {
         : r.action_parameters?.cache === true
           ? `Cache (edge_ttl=${r.action_parameters?.edge_ttl?.mode ?? '既定'})`
           : r.action;
-    const mark = r.description === RULE_TAG ? ' ←このスクリプトの分' : '';
+    const mark = mentionsApiSpots(r) ? ' ←/api/spots を対象にしているルール' : '';
     process.stdout.write(`  ${String(i + 1).padStart(2)}. [${r.enabled ? '有効' : '無効'}] ${cache}${mark}\n`);
-    process.stdout.write(`      ${r.description || '(説明なし)'}\n`);
-    process.stdout.write(`      ${r.expression}\n`);
+    process.stdout.write(`      名前: ${r.description || '(説明なし)'}\n`);
+    process.stdout.write(`      条件: ${r.expression}\n`);
+    if (verbose) {
+      // 画面では読み取れない設定（cache_key・serve_stale・browser_ttl など）まで出す。
+      // 「ちゃんと設定したのに効かない」ときは、たいていここに答えがある。
+      process.stdout.write(
+        `      設定: ${JSON.stringify(r.action_parameters ?? {}, null, 0)}\n`
+      );
+    }
   });
+}
+
+/** そのルールが /api/spots を巻き込むか。名前ではなく条件式で見る */
+function mentionsApiSpots(r) {
+  return (r.expression ?? '').includes('/api/spots');
 }
 
 async function main() {
@@ -114,7 +142,69 @@ async function main() {
   const rules = phase.rules ?? [];
 
   process.stdout.write(`現在の Cache Rules（${rules.length}件、上から順に評価）:\n`);
-  show(rules);
+  show(rules, !APPLY);
+
+  /*
+    「設定したのに効かない」の切り分け。
+    Cloudflare は先に当たったルールだけを適用するので、/api/spots を対象にした
+    ルールがあっても、その上に Bypass が居れば負ける。順序を明示的に見る。
+  */
+  const idx = rules.findIndex(mentionsApiSpots);
+  const blocker = rules.findIndex(
+    (r) => r.action_parameters?.cache === false && (r.expression ?? '').includes('/api/')
+  );
+  let needsTtlFix = false;
+  if (idx >= 0) {
+    process.stdout.write(`\n/api/spots を対象にしたルールは ${idx + 1} 番目にあります。\n`);
+    if (!rules[idx].enabled) {
+      process.stdout.write('  ★無効になっています。有効にしてください。\n');
+    }
+    if (rules[idx].action_parameters?.cache !== true) {
+      process.stdout.write('  ★Cache eligibility が「Eligible for cache」になっていません。\n');
+    }
+    const mode = rules[idx].action_parameters?.edge_ttl?.mode;
+    if (mode !== WANT_TTL_MODE) {
+      needsTtlFix = true;
+      process.stdout.write(
+        `  ★Edge TTL が ${mode ?? '未設定'} です。${WANT_TTL_MODE} にする必要があります。\n` +
+          '    未設定だと Cloudflare は既定の判断（拡張子ベース）に戻り、JSON はキャッシュされません。\n'
+      );
+    }
+    // 後ろに Bypass が居ると上書きされる。前に居るぶんには問題ない
+    if (blocker > idx) {
+      process.stdout.write(
+        `  ★${blocker + 1} 番目の Bypass（/api/）が後から上書きするため、このルールは効きません。\n` +
+          '    Cache Rules は後のルールが勝つので、この例外ルールを末尾へ移動してください。\n'
+      );
+    }
+  }
+
+  // 既存ルールの Edge TTL だけを直す。条件式や位置には触らない
+  if (idx >= 0 && needsTtlFix) {
+    if (!APPLY) {
+      process.stdout.write('\n--apply を付けると、この Edge TTL を直します。\n');
+      return;
+    }
+    const target = rules[idx];
+    const updated = await cf(`/zones/${zone.id}/rulesets/${phase.id}/rules/${target.id}`, {
+      method: 'PATCH',
+      // action_parameters だけを送ると「action is required」で 400 になる。
+      // 既存の値をそのまま添えて、edge_ttl だけ差し替える。
+      body: JSON.stringify({
+        action: target.action,
+        expression: target.expression,
+        description: target.description,
+        enabled: target.enabled,
+        action_parameters: { ...target.action_parameters, edge_ttl: { mode: WANT_TTL_MODE } },
+      }),
+    });
+    process.stdout.write('\nEdge TTL を直しました。\n');
+    show(updated.rules ?? [], false);
+    process.stdout.write(
+      `\n数十秒おいてから確認してください:\n  curl -sI "https://${zone.name}/api/spots?categories=water&lat=38.255&lng=140.340" | grep -i cf-cache-status\n`
+    );
+    return;
+  }
 
   // 先に確認する。既に壊れているなら、その上に足しても意味がない
   const missing = MUST_BYPASS.filter((p) => !bypassesPath(rules, p));
@@ -126,14 +216,17 @@ async function main() {
     process.exit(1);
   }
 
-  const existing = rules.find((r) => r.description === RULE_TAG);
-  if (existing) {
-    process.stdout.write('\nこのスクリプトのルールは既に入っています。何もしません。\n');
-    process.stdout.write('内容を変えたい場合は、ダッシュボードで当該ルールを削除してから再実行してください。\n');
+  /*
+    重複を作らない。名前ではなく条件式で判定する。
+    画面で作ったルールは名前が違うので、名前で見ると同じ条件のものを二重に足してしまう。
+  */
+  if (idx >= 0) {
+    process.stdout.write('\n/api/spots を対象にしたルールが既にあるため、追加しません。\n');
+    process.stdout.write('上の診断で ★ が出ていれば、そこが原因です。画面で直すか、当該ルールを消してから再実行してください。\n');
     return;
   }
 
-  process.stdout.write('\n追加するルール（先頭に入れる。Bypass より先に当てるため）:\n');
+  process.stdout.write('\n追加するルール（末尾に入れる。後のルールが勝つため）:\n');
   process.stdout.write(`  ${RULE.description}\n  ${RULE.expression}\n`);
   process.stdout.write(`  Cache: 有効 / edge_ttl: ${RULE.action_parameters.edge_ttl.mode}\n`);
 
@@ -143,11 +236,11 @@ async function main() {
   }
 
   // 全体を PUT で置き換えると、一手で他のルールを消せてしまう。
-  // 1件だけ足す API を使い、位置を先頭に指定する。
-  const first = rules[0];
+  // 1件だけ足す API を使う。位置は指定しない（末尾に付く）。
+  // 末尾でなければならない理由は冒頭のコメントを参照。
   const created = await cf(`/zones/${zone.id}/rulesets/${phase.id}/rules`, {
     method: 'POST',
-    body: JSON.stringify(first ? { ...RULE, position: { before: first.id } } : RULE),
+    body: JSON.stringify(RULE),
   });
 
   const after = created.rules ?? [];
@@ -160,8 +253,8 @@ async function main() {
     process.stdout.write(`\n★${broke.join(' と ')} の Bypass が消えました。ただちに戻してください。\n`);
     process.exit(1);
   }
-  if (after[0]?.description !== RULE_TAG) {
-    process.stdout.write('\n★追加したルールが先頭にありません。Bypass が先に当たるため効きません。\n');
+  if (after[after.length - 1]?.description !== RULE_TAG) {
+    process.stdout.write('\n★追加したルールが末尾にありません。後続の Bypass に上書きされて効きません。\n');
     process.exit(1);
   }
 

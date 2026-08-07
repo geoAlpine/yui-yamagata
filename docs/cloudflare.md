@@ -87,27 +87,52 @@ Cache Rules の **Edge TTL を「Override origin」** にして上書きする�
 - **HTMLが利用者に依存しない。** 同一URLを2回取得して差分は `serverNow`
   （時刻）のみ。自宅の登録は端末内、現在地はクライアント側で処理する
 
-### ルール0（最優先）: 「近い順」の取り直しだけはキャッシュする
+### ★ Cache Rules は「最初に一致したもの」が勝つのではない
+
+**一致したルールが上から順にすべて適用され、後のルールが前を上書きする。**
+WAF のカスタムルール（最初の一致で確定）とは逆で、ここを取り違えると
+半日溶ける。実際に溶かした。
+
+したがって**例外は末尾に置く**。Bypass より前に置くと、あとから来る
+Bypass に毎回上書きされる。そのとき `cf-cache-status` は `BYPASS` ではなく
+**`DYNAMIC`** のままなので、「ルールが一致していない」ように見えて
+条件式ばかり疑うことになる。順序を疑うこと。
+
+正しい並び:
+
+```
+1. bypass-private       /api/ ・/admin ・/mine を Bypass
+2. cache-html           上記以外をキャッシュ
+3. ★例外ルール          GET /api/spots だけキャッシュ  ← 末尾
+```
+
+### 「近い順」の取り直しだけはキャッシュする（末尾に置く）
 
 `GET /api/spots` は、位置情報を許可した人が一覧を開くたびに呼ばれる。
 HTMLをCDNに載せたあと、**CDNを通らない読み取りとしてはここが最大**になった。
 同居する商用サイトを巻き込まないためにも落としておきたい。
 
-下の**ルール1より上**に置くこと。順に評価され、最初に当たったものが効く。
+**一覧のいちばん下**に置くこと（上記のとおり後のルールが勝つ）。
 
 ```
 （すべて満たす）
   URI Path equals "/api/spots"
   Request Method equals "GET"
     Cache eligibility : Eligible for cache
-    Edge TTL          : Respect origin TTL   ← Override にしない
+    Edge TTL          : Use cache-control header if present, bypass cache if not
+                        （API では bypass_by_default。cache-html と同じ指定）
     Cache key         : クエリ文字列を含める（既定のまま）
 ```
 
-Edge TTL を **Respect origin** にするのが要点。アプリ側が
+**Edge TTL を空欄のままにしないこと。** `Eligible for cache` だけ立てても、
+Edge TTL の指定が無いと Cloudflare は既定の判断（拡張子ベース）に戻り、
+JSON はキャッシュされず `DYNAMIC` のままになる。これも実際に踏んだ。
+
+`bypass_by_default` にするのは、アプリ側が
 `s-maxage=30, stale-while-revalidate=120` を返しており
 （`app/api/spots/route.ts`）、どれだけ持ってよいかを知っているのは
-CDNの設定画面ではなくアプリのほうだから。
+CDNの設定画面ではなくアプリのほうだから。`override_origin` にすると
+アプリが `no-store` と言っても無視されるので使わない。
 
 載せてよい根拠:
 
@@ -149,7 +174,7 @@ URI Path equals   "/mine"        → Bypass cache
 `/mine` は `getOrIssueIdentity()` で投稿者ごとの一覧を出す。
 `/admin` は管理セッションを見る。**この2つを外すと事故になる。**
 
-`/api/` の Bypass はこのまま残す。ルール0が先に当たるので
+`/api/` の Bypass はこのまま残す。末尾の例外ルールが**あとから上書きする**ので
 `GET /api/spots` だけが抜け、書き込み系は従来どおり素通しになる。
 
 ### ルール2: HTMLをキャッシュする

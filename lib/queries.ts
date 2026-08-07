@@ -506,6 +506,56 @@ export async function recentObservationCount(
 // 管理用
 // ─────────────────────────────────────────────
 
+/**
+ * 管理者パスワードがDBに設定されているか。
+ *
+ * ここが false でも、環境変数 ADMIN_PASSWORD があれば従来どおり入れる。
+ * 両方とも無いときだけ /admin が初期設定の画面になる（lib/admin.ts）。
+ */
+export async function hasAdminPassword(): Promise<boolean> {
+  const rows = await query<{ ok: boolean }>(
+    `SELECT admin_password_hash IS NOT NULL AS ok FROM site_state WHERE id = true`
+  );
+  return rows[0]?.ok ?? false;
+}
+
+/**
+ * パスワードの照合。ハッシュはDBから出さず、比較もDB内で完結させる。
+ * アプリ側に取り出すと、ログや例外に載る経路が増える。
+ */
+export async function verifyAdminPassword(input: string): Promise<boolean> {
+  const rows = await query<{ ok: boolean }>(
+    `SELECT admin_password_hash = crypt($1, admin_password_hash) AS ok
+       FROM site_state WHERE id = true AND admin_password_hash IS NOT NULL`,
+    [input]
+  );
+  return rows[0]?.ok === true;
+}
+
+/**
+ * パスワードを設定する。平文は保存しない（bcrypt, cost 10）。
+ *
+ * cost 10 は約60〜100ms。管理者のログインは頻度が低いので十分で、
+ * かつ災害時にCPUを取り合わない範囲に収めてある。
+ *
+ * onlyIfUnset を渡すと、未設定のときだけ書き込む。初期設定の口が
+ * 二重に踏まれて、先に設定した人のパスワードを上書きする事故を防ぐ。
+ * 戻り値は実際に書き込んだかどうか。
+ */
+export async function setAdminPassword(
+  input: string,
+  opts: { onlyIfUnset?: boolean } = {}
+): Promise<boolean> {
+  const rows = await query<{ id: boolean }>(
+    `UPDATE site_state
+        SET admin_password_hash = crypt($1, gen_salt('bf', 10)), updated_at = now()
+      WHERE id = true ${opts.onlyIfUnset ? 'AND admin_password_hash IS NULL' : ''}
+      RETURNING id`,
+    [input]
+  );
+  return rows.length > 0;
+}
+
 export async function setMode(mode: Mode, notice: string | null) {
   await query(
     `UPDATE site_state SET mode = $1, notice = $2, updated_at = now() WHERE id = true`,

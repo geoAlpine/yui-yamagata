@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { createHmac, timingSafeEqual } from 'crypto';
+import { hasAdminPassword, verifyAdminPassword } from './queries';
 
 /**
  * 管理者認証。
@@ -49,15 +50,37 @@ export async function isAdmin(): Promise<boolean> {
 }
 
 /**
- * パスワード照合。長さの違いを漏らさないよう、比較の前にハッシュを揃える。
- * 平文比較だと応答時間から文字数が推測できる。
+ * パスワード照合。
+ *
+ * 優先順位は DB → 環境変数。DBに設定されていればそちらだけを見る。
+ * 環境変数を残してあるのは、既に ADMIN_PASSWORD で運用している本番を
+ * 壊さないため。移行を強制しない。
  */
-export function checkPassword(input: string): boolean {
+export async function checkPassword(input: string): Promise<boolean> {
+  if (await hasAdminPassword()) return verifyAdminPassword(input);
+
+  // 環境変数へのフォールバック。
+  // 長さの違いを漏らさないよう、比較の前にハッシュを揃える。
+  // 平文比較だと応答時間から文字数が推測できる。
   const expected = process.env.ADMIN_PASSWORD;
   if (!expected) return false;
   const a = createHmac('sha256', secret()).update(input).digest();
   const b = createHmac('sha256', secret()).update(expected).digest();
   return timingSafeEqual(a, b);
+}
+
+/**
+ * 初期設定が必要か。DBにも環境変数にもパスワードが無い状態。
+ *
+ * ★この間、/admin は誰でも開ける。先に開いた人がパスワードを決められる。
+ *   初回デプロイの直後に必ず設定すること（docs/runbook-initial-deploy.md）。
+ *   管理画面はモード切替と報告の非表示を握っているので、放置してはいけない。
+ *
+ * 既存の本番は ADMIN_PASSWORD が設定済みなので、この状態にはならない。
+ */
+export async function needsAdminSetup(): Promise<boolean> {
+  if (process.env.ADMIN_PASSWORD) return false;
+  return !(await hasAdminPassword());
 }
 
 export const ADMIN_COOKIE = COOKIE;

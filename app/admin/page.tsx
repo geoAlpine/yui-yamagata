@@ -1,27 +1,82 @@
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { isAdmin, checkPassword, issueAdminCookie, ADMIN_COOKIE } from '@/lib/admin';
+import { isAdmin, checkPassword, issueAdminCookie, needsAdminSetup, ADMIN_COOKIE } from '@/lib/admin';
 import { getCategory, getStatus } from '@/lib/categories';
 import {
   getMode, setMode, listOpenReports, resolveReport, hideObservation,
-  listPendingNotices, verifyNotice, hideNotice,
+  listPendingNotices, verifyNotice, hideNotice, setAdminPassword, hasAdminPassword,
 } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
+/** 画面に出す短い理由。パスワードそのものの手がかりは出さない */
+const ERRORS: Record<string, string> = {
+  short: `パスワードが短すぎます`,
+  mismatch: '2つのパスワードが一致しません',
+  taken: '別の操作で先に設定されました。設定したパスワードでログインしてください',
+  curwrong: '現在のパスワードが違います',
+  pwok: 'パスワードを変更しました',
+};
+
 // Server Actions で完結させる。管理画面のためにクライアントJSを増やさない。
 
-async function login(formData: FormData) {
-  'use server';
-  const pw = String(formData.get('password') ?? '');
-  if (!checkPassword(pw)) redirect('/admin?e=1');
+async function setCookie() {
   const c = issueAdminCookie();
   (await cookies()).set({
     name: c.name, value: c.value, httpOnly: true, sameSite: 'lax',
     path: '/', maxAge: c.maxAge, secure: process.env.NODE_ENV === 'production',
   });
+}
+
+async function login(formData: FormData) {
+  'use server';
+  const pw = String(formData.get('password') ?? '');
+  if (!(await checkPassword(pw))) redirect('/admin?e=1');
+  await setCookie();
   redirect('/admin');
+}
+
+/** パスワードの要件。短いものを受けると初期設定の意味が薄れる */
+const MIN_PW = 12;
+
+/**
+ * 初回のパスワード設定。
+ *
+ * 認証を要求できない（まだパスワードが無い）ので、条件はサーバ側で必ず確認する。
+ * 画面を出した時点と送信した時点の間に誰かが設定している可能性があるため、
+ * onlyIfUnset を付けて「未設定のときだけ書く」を DB の条件に載せる。
+ * 二人が同時に開いても、先に設定したほうが勝つ。
+ */
+async function setupPassword(formData: FormData) {
+  'use server';
+  if (!(await needsAdminSetup())) redirect('/admin');
+
+  const pw = String(formData.get('password') ?? '');
+  const pw2 = String(formData.get('password2') ?? '');
+  if (pw.length < MIN_PW) redirect('/admin?e=short');
+  if (pw !== pw2) redirect('/admin?e=mismatch');
+
+  if (!(await setAdminPassword(pw, { onlyIfUnset: true }))) {
+    // 先を越された。勝手にログインさせず、通常のログイン画面へ戻す
+    redirect('/admin?e=taken');
+  }
+  await setCookie();
+  redirect('/admin');
+}
+
+/** 設定後の変更。こちらは認証済みが前提 */
+async function changePassword(formData: FormData) {
+  'use server';
+  await guard();
+  const cur = String(formData.get('current') ?? '');
+  const pw = String(formData.get('password') ?? '');
+  const pw2 = String(formData.get('password2') ?? '');
+  if (!(await checkPassword(cur))) redirect('/admin?e=curwrong');
+  if (pw.length < MIN_PW) redirect('/admin?e=short');
+  if (pw !== pw2) redirect('/admin?e=mismatch');
+  await setAdminPassword(pw);
+  redirect('/admin?e=pwok');
 }
 
 async function logout() {
@@ -83,11 +138,51 @@ export default async function AdminPage({
 }) {
   const { e } = await searchParams;
 
+  const err = ERRORS[e ?? ''] ?? (e ? 'パスワードが違います' : null);
+
+  /*
+    初期設定。DBにも環境変数にもパスワードが無いときだけ出る。
+    ★この画面は誰でも開ける。認証を要求できる材料がまだ無いため。
+      デプロイ直後に運用者が真っ先に設定することが前提の導線で、
+      放置すると先に見つけた人に管理画面を取られる。警告を明示する。
+  */
+  if (await needsAdminSetup()) {
+    return (
+      <>
+        <h2>管理画面の初期設定</h2>
+        {err && <p style={{ color: 'var(--bad)', fontWeight: 700 }}>{err}</p>}
+        <div className="card" style={{ borderColor: 'var(--bad)' }}>
+          <p style={{ margin: 0, fontWeight: 700, color: 'var(--bad)' }}>
+            まだパスワードが設定されていません。
+          </p>
+          <p className="sub" style={{ marginBottom: 0 }}>
+            設定が済むまで、この画面は誰でも開けます。管理画面は災害モードの切替と
+            報告の非表示を行えるため、<strong>いますぐ設定してください。</strong>
+          </p>
+        </div>
+        <form action={setupPassword}>
+          <div className="field">
+            <label htmlFor="pw">パスワード（{MIN_PW}文字以上）</label>
+            <input id="pw" name="password" type="password" autoComplete="new-password" />
+          </div>
+          <div className="field">
+            <label htmlFor="pw2">確認のためもう一度</label>
+            <input id="pw2" name="password2" type="password" autoComplete="new-password" />
+          </div>
+          <button className="btn primary block" type="submit">設定する</button>
+        </form>
+        <p className="sub" style={{ marginTop: 12 }}>
+          設定した内容はこのサーバのデータベースに保存されます（平文では保存しません）。
+        </p>
+      </>
+    );
+  }
+
   if (!(await isAdmin())) {
     return (
       <>
         <h2>管理</h2>
-        {e && <p style={{ color: 'var(--bad)', fontWeight: 700 }}>パスワードが違います</p>}
+        {err && <p style={{ color: 'var(--bad)', fontWeight: 700 }}>{err}</p>}
         <form action={login}>
           <div className="field">
             <label htmlFor="pw">パスワード</label>
@@ -99,8 +194,8 @@ export default async function AdminPage({
     );
   }
 
-  const [{ mode, notice }, reports, notices] = await Promise.all([
-    getMode(), listOpenReports(), listPendingNotices(),
+  const [{ mode, notice }, reports, notices, dbPassword] = await Promise.all([
+    getMode(), listOpenReports(), listPendingNotices(), hasAdminPassword(),
   ]);
 
   return (
@@ -218,6 +313,35 @@ export default async function AdminPage({
           </div>
         </article>
       ))}
+
+      {/*
+        パスワードの変更。DBに設定がある場合だけ出す。
+        環境変数で運用している場合はここから変えられない（変えても env が優先されず、
+        かえって混乱する）ので、その旨だけ案内する。
+      */}
+      <h2>パスワード</h2>
+      {dbPassword ? (
+        <form action={changePassword} className="card">
+          <div className="field">
+            <label htmlFor="cur">現在のパスワード</label>
+            <input id="cur" name="current" type="password" autoComplete="current-password" />
+          </div>
+          <div className="field">
+            <label htmlFor="np">新しいパスワード（{MIN_PW}文字以上）</label>
+            <input id="np" name="password" type="password" autoComplete="new-password" />
+          </div>
+          <div className="field">
+            <label htmlFor="np2">確認のためもう一度</label>
+            <input id="np2" name="password2" type="password" autoComplete="new-password" />
+          </div>
+          <button className="btn-sm" type="submit">変更する</button>
+        </form>
+      ) : (
+        <p className="sub">
+          環境変数 <code>ADMIN_PASSWORD</code> で設定されています。
+          変更はサーバ側で <code>/etc/yui/production.env</code> を書き換えてください。
+        </p>
+      )}
     </>
   );
 }

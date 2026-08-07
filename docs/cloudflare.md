@@ -311,7 +311,9 @@ Cloudflare 側は、DNSレコードのプロキシをグレーに戻せば素通
 
 ## 残る課題
 
-- **origin のIP露出 → `deploy/apply-origin-lockdown.sh` で対処する。**
+- ~~**origin のIP露出**~~ → **2026-08-07 に対処済み**（`deploy/apply-origin-lockdown.sh`）。
+  外部からの直アクセスは 403、Cloudflare 経由は 200 を実測で確認。
+  同居する商用サイトと staging に影響が無いことも確認済み。以下は経緯。
   Cloudflare を迂回して直接叩ける。しかもIPは SPF レコード
   （`v=spf1 ip4:210.131.217.236 -all`）で公開されており、dig 一発で分かる。
   負荷試験では `/report` が **115 req/s** で飽和した。家庭回線1本で届く。

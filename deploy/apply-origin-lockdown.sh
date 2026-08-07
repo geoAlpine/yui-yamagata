@@ -112,10 +112,17 @@ fi
 echo
 echo "=== 5. 確認 ==="
 sleep 2
-DIRECT=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -k -H 'Host: yui-yamagata.com' https://127.0.0.1/ || echo 000)
 VIACF=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://yui-yamagata.com/ || echo 000)
-echo "  直アクセス（Host偽装）      : $DIRECT   ← 403 が正常"
 echo "  Cloudflare 経由             : $VIACF   ← 200 が正常"
+
+# ここから遮断の確認はできない。127.0.0.1 は疎通確認用に許可リストへ
+# 入れてあるので、サーバ自身から叩けば必ず通る（当初これで 200 を見て
+# 「効いていない」と誤読した）。外部の端末から確かめること。
+echo
+echo "  遮断できたかは、このサーバからは確認できません（127.0.0.1 は許可済みのため）。"
+echo "  手元の端末から実行してください:"
+echo "    curl -s -o /dev/null -w '%{http_code}\\n' -k -H 'Host: yui-yamagata.com' https://$(hostname -I 2>/dev/null | awk '{print $1}')/"
+echo "    → 403 が正常"
 echo
 echo "backup: $BK"
 echo "戻すには: sudo $0 --undo"

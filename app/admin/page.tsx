@@ -315,33 +315,42 @@ export default async function AdminPage({
       ))}
 
       {/*
-        パスワードの変更。DBに設定がある場合だけ出す。
-        環境変数で運用している場合はここから変えられない（変えても env が優先されず、
-        かえって混乱する）ので、その旨だけ案内する。
+        パスワードの変更。DB・環境変数のどちらで運用していても出す。
+
+        当初はDBに設定がある場合だけ出していたが、それでは環境変数で動いている
+        既存の本番から移行できない。DBへ入れる唯一の口が初期設定画面で、
+        そちらは環境変数が無いときしか出ないため、鶏と卵になっていた。
+        変更は常に「DBへ書く」動作なので、ここが移行の導線を兼ねる。
       */}
       <h2>パスワード</h2>
-      {dbPassword ? (
-        <form action={changePassword} className="card">
-          <div className="field">
-            <label htmlFor="cur">現在のパスワード</label>
-            <input id="cur" name="current" type="password" autoComplete="current-password" />
-          </div>
-          <div className="field">
-            <label htmlFor="np">新しいパスワード（{MIN_PW}文字以上）</label>
-            <input id="np" name="password" type="password" autoComplete="new-password" />
-          </div>
-          <div className="field">
-            <label htmlFor="np2">確認のためもう一度</label>
-            <input id="np2" name="password2" type="password" autoComplete="new-password" />
-          </div>
-          <button className="btn-sm" type="submit">変更する</button>
-        </form>
-      ) : (
-        <p className="sub">
-          環境変数 <code>ADMIN_PASSWORD</code> で設定されています。
-          変更はサーバ側で <code>/etc/yui/production.env</code> を書き換えてください。
-        </p>
+      {!dbPassword && (
+        <div className="card">
+          <p style={{ margin: 0 }}>
+            現在は環境変数 <code>ADMIN_PASSWORD</code> で設定されています（サーバ上に平文で置かれます）。
+          </p>
+          <p className="sub" style={{ marginBottom: 0 }}>
+            ここで変更すると、以後はこのサーバのデータベースに保存したハッシュが使われ、
+            <strong>環境変数は参照されなくなります。</strong>
+            変更後に <code>/etc/yui/production.env</code> の該当行を削除してください
+            （残すと、どちらが現在のパスワードか分からなくなります）。
+          </p>
+        </div>
       )}
+      <form action={changePassword} className="card">
+        <div className="field">
+          <label htmlFor="cur">現在のパスワード</label>
+          <input id="cur" name="current" type="password" autoComplete="current-password" />
+        </div>
+        <div className="field">
+          <label htmlFor="np">新しいパスワード（{MIN_PW}文字以上）</label>
+          <input id="np" name="password" type="password" autoComplete="new-password" />
+        </div>
+        <div className="field">
+          <label htmlFor="np2">確認のためもう一度</label>
+          <input id="np2" name="password2" type="password" autoComplete="new-password" />
+        </div>
+        <button className="btn-sm" type="submit">変更する</button>
+      </form>
     </>
   );
 }

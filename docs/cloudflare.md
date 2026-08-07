@@ -87,7 +87,56 @@ Cache Rules の **Edge TTL を「Override origin」** にして上書きする�
 - **HTMLが利用者に依存しない。** 同一URLを2回取得して差分は `serverNow`
   （時刻）のみ。自宅の登録は端末内、現在地はクライアント側で処理する
 
-### ルール1（優先）: キャッシュしない
+### ルール0（最優先）: 「近い順」の取り直しだけはキャッシュする
+
+`GET /api/spots` は、位置情報を許可した人が一覧を開くたびに呼ばれる。
+HTMLをCDNに載せたあと、**CDNを通らない読み取りとしてはここが最大**になった。
+同居する商用サイトを巻き込まないためにも落としておきたい。
+
+下の**ルール1より上**に置くこと。順に評価され、最初に当たったものが効く。
+
+```
+（すべて満たす）
+  URI Path equals "/api/spots"
+  Request Method equals "GET"
+    Cache eligibility : Eligible for cache
+    Edge TTL          : Respect origin TTL   ← Override にしない
+    Cache key         : クエリ文字列を含める（既定のまま）
+```
+
+Edge TTL を **Respect origin** にするのが要点。アプリ側が
+`s-maxage=30, stale-while-revalidate=120` を返しており
+（`app/api/spots/route.ts`）、どれだけ持ってよいかを知っているのは
+CDNの設定画面ではなくアプリのほうだから。
+
+載せてよい根拠:
+
+- **返すのは公開情報だけ。** 利用者ごとに変わる要素がない
+- **Set-Cookie を返さない。** 匿名IDの発行は POST 側のみ（`lib/identity.ts`）
+- 呼び出し側が**座標を約100mに丸めて**送る（`components/SpotList.tsx`）。
+  丸めないとURLが利用者ごとに別物になり、1件もヒットしない
+
+**`POST /api/spots`（場所の追加）を巻き込まないこと。** Method の条件を
+落とすと、匿名IDを発行する応答がキャッシュされ、他人のIDが配られる。
+
+#### スクリプトで入れる
+
+画面で作ってもよいが、`scripts/cloudflare_cache_rules.mjs` でも入れられる。
+条件式や TTL を手で入力し直さずに済むので、こちらを勧める。
+
+```bash
+export CLOUDFLARE_API_TOKEN=...          # 作り方はスクリプト冒頭のコメント
+node scripts/cloudflare_cache_rules.mjs           # 下見（既定）
+node scripts/cloudflare_cache_rules.mjs --apply   # 反映
+```
+
+**ルールセット全体を PUT で置き換えない。** 一手で `/admin` と `/mine` の
+Bypass を消せてしまい、管理画面や投稿者ごとの一覧がキャッシュされて
+他人の情報が配られる。スクリプトは1件だけ追加する API を使い、
+実行の前後で両方の Bypass が残っていることを確認して、消えていれば
+異常終了する。既に入っている場合は二重に足さない。
+
+### ルール1: キャッシュしない
 
 以下は**利用者ごとに内容が異なる**。キャッシュすると他人の情報が配られる。
 
@@ -99,6 +148,9 @@ URI Path equals   "/mine"        → Bypass cache
 
 `/mine` は `getOrIssueIdentity()` で投稿者ごとの一覧を出す。
 `/admin` は管理セッションを見る。**この2つを外すと事故になる。**
+
+`/api/` の Bypass はこのまま残す。ルール0が先に当たるので
+`GET /api/spots` だけが抜け、書き込み系は従来どおり素通しになる。
 
 ### ルール2: HTMLをキャッシュする
 
@@ -112,6 +164,33 @@ URI Path equals   "/mine"        → Bypass cache
 
 30秒にしているのは、カテゴリの情報が数時間で腐る設計に対して
 無視できる遅れであり、かつ origin への到達を 1/100 以下にできるため。
+
+#### Edge TTL は Override ではなく Respect origin にしておくこと
+
+本番の応答を実測すると、`/` は `EXPIRED`（＝キャッシュ対象）、
+`/report` は `BYPASS` だった。`/report` は origin が `no-store` を返していたので、
+**このルールは Override ではなく Respect origin で動いている**とみられる。
+
+そちらが正しい。どのページをどれだけ持ってよいかを知っているのはアプリで、
+`next.config.ts` が宣言している。Override にすると、`no-store` を返すべき
+ページまで一律にキャッシュされ、`/mine` や `/admin` の Bypass を1つ外した
+だけで事故になる。**Respect origin なら、アプリ側の宣言が最後の砦として残る。**
+
+この結果、`/report` と `/report/:spotId` は**ダッシュボードを触らずに**
+キャッシュされるようになる（アプリ側でヘッダを付けたため）。
+デプロイ後に `cf-cache-status` が `HIT` になることで確認できる。
+
+### Always Online
+
+**オリジンが落ちても、Cloudflare が保持している版を配り続ける。**
+無料プランで使える。災害サイトでは効果が大きい。
+
+```
+Caching → Configuration → Always Online : On
+```
+
+サーバが停止しても「避難所と給水拠点の位置は見られる」状態が残る。
+報告の投稿はできなくなるが、**最後まで残すべきなのは位置情報のほう**。
 
 `serverNow` が最大30秒古くなるが、`SpotCard` はマウント後に
 クライアントの時計へ切り替えるので、初回描画の一瞬だけの話。

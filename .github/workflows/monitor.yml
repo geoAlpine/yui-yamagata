@@ -6,6 +6,11 @@ name: Monitor
 #
 # VPSの中からではなく GitHub Actions から叩くのが要点。
 # VPSごと落ちている場合、中からの監視は何も報告できない。
+#
+# ただしこの経路は Azure(米国) → Cloudflare → VPS(日本) と長い。
+# 途中の瞬断でオリジンが無事でも失敗しうるので、
+# 一度だけやり直し、やり直しで通ったものは「警告」として記録に残す。
+# 握り潰さないのは、平時の遅さが災害当日の前兆になりうるため。
 on:
   schedule:
     - cron: '0 */6 * * *'   # 6時間ごと。平時の検知はこれで足りる
@@ -22,27 +27,67 @@ jobs:
         name: 本番サイトを確かめる
         run: |
           fail=""
-          note() { echo "  $1"; fail="${fail}- $1"$'\n'; }
+          warn=""
+          note() { echo "  異常: $1"; fail="${fail}- $1"$'\n'; }
+          soft() { echo "  警告: $1"; warn="${warn}- $1"$'\n'; }
+
+          body=$(mktemp -d)
+
+          # curl は途中で打ち切られても -w の内容を書き出す。
+          # 以前は $(curl ... || echo 000) と書いていたため、本文の受信中に
+          # タイムアウトすると "200" と "000" が連結して "200000" になり、
+          # 意味の分からない通知が飛んだ。失敗したら出力ごと捨てる。
+          probe() {   # $1=URL $2=本文の保存先 → "<HTTPコード> <秒> <curlの終了コード>"
+            local out rc=0
+            out=$(curl -s -o "$2" -w '%{http_code} %{time_total}' --max-time 20 "$1") || rc=$?
+            if [ "$rc" -ne 0 ]; then out="000 0"; fi
+            echo "$out $rc"
+          }
 
           # 1. 主要ページが応答するか
+          check_page() {   # $1=パス $2=本文の保存先
+            local code t rc attempt
+            for attempt in 1 2; do
+              read -r code t rc <<<"$(probe "https://yui-yamagata.com$1" "$2")"
+              printf '  %s -> %s (%s秒)\n' "$1" "$code" "$t"
+              if [ "$code" = "200" ]; then break; fi
+              if [ "$attempt" = "1" ]; then sleep 5; fi
+            done
+
+            if [ "$code" != "200" ]; then
+              if [ "$rc" = "28" ]; then
+                note "\`$1\` が20秒以内に応答しません（2回とも）"
+              else
+                note "\`$1\` が $code を返しています（2回とも / curl終了コード $rc）"
+              fi
+              return
+            fi
+
+            if [ "$attempt" != "1" ]; then
+              soft "\`$1\` は1回目が失敗し、やり直しで通りました（経路の瞬断の疑い）"
+            fi
+            if [ "${t%%.*}" -ge 5 ]; then
+              soft "\`$1\` の応答に ${t}秒 かかっています"
+            fi
+          }
+
           for p in / /notices /spots/new /robots.txt; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://yui-yamagata.com$p" || echo 000)
-            echo "  $p -> $code"
-            [ "$code" = "200" ] || note "\`$p\` が $code を返しています"
+            check_page "$p" "$body/$(echo "$p" | tr / _)"
           done
 
-          html=$(curl -s --max-time 20 https://yui-yamagata.com/ || true)
+          html=$(cat "$body/_" 2>/dev/null || true)
 
           # 2. 消しても動いてしまうもの。だから機械で見張る
           echo "$html" | grep -q "住民の目撃情報です" || note "免責の表示が消えています"
           echo "$html" | grep -q "OpenStreetMap contributors" || note "OpenStreetMapの出典が消えています（ODbL違反）"
           echo "$html" | grep -q envbar && note "本番に確認用（ステージング）の帯が出ています"
-          curl -s --max-time 20 https://yui-yamagata.com/robots.txt | grep -q "Allow: /" \
+          grep -q "Allow: /" "$body/_robots.txt" 2>/dev/null \
             || note "本番が検索エンジンから除外されています"
 
           # 3. データが消えていないか。空のまま災害を迎えるのが最悪
           n=$(curl -s --max-time 25 "https://yui-yamagata.com/api/spots?lat=38.2404&lng=140.3283&categories=water,gas,medical,toilet,charge" \
               | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('spots',[])))" 2>/dev/null || echo 0)
+          case "$n" in ''|*[!0-9]*) n=0 ;; esac
           echo "  スポット取得: $n 件"
           [ "$n" -ge 20 ] || note "スポットが $n 件しか返りません（データ欠損の疑い）"
 
@@ -57,8 +102,17 @@ jobs:
             note "証明書を取得できませんでした"
           fi
 
+          # 警告だけのときは失敗にしない（メールを送らない）が、
+          # 実行結果には必ず残す。誰も見ない記録でも、後から遡れることに意味がある。
+          {
+            echo "### 本番サイトの定期確認"
+            if [ -n "$fail" ]; then printf '\n**異常**\n\n%s' "$fail"; fi
+            if [ -n "$warn" ]; then printf '\n**警告（今回は正常と判定）**\n\n%s' "$warn"; fi
+            if [ -z "$fail$warn" ]; then printf '\nすべて正常\n'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
           if [ -n "$fail" ]; then
-            { echo "problems<<EOF"; echo "$fail"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+            { echo "problems<<YUI_EOF"; echo "$fail"; echo "YUI_EOF"; } >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "すべて正常"
@@ -66,12 +120,20 @@ jobs:
       - name: 異常があれば課題を立てる
         if: failure()
         uses: actions/github-script@v7
+        env:
+          # 以前は ${{ }} を JS のテンプレートリテラルに直に埋めていたため、
+          # 本文に含まれるバッククォートがリテラルを閉じてしまい、
+          # 通知の本文が "NaN" になっていた。異常を知らせる仕組みが
+          # 何が異常かを言えていなかった。env 経由で渡す。
+          PROBLEMS: ${{ steps.probe.outputs.problems }}
         with:
           script: |
+            const problems = process.env.PROBLEMS
+              || '（詳細を取得できませんでした。上の実行ログを見てください）';
             const body = [
               '本番サイトの定期確認で異常を検知しました。',
               '',
-              `${{ steps.probe.outputs.problems }}`,
+              problems,
               '',
               `確認時刻: ${new Date().toISOString()}`,
               `実行: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,

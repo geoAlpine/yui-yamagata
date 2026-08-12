@@ -1,14 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  judgeQuake as rawQuake,
-  judgeWarning as rawWarning,
+  judgeQuake,
+  judgeWarning,
+  normalizeKind,
+  shouldRing,
 } from '../scripts/watch_jma.mjs';
-
-/** .mjs 側に型が無いので、テストで期待する形をここで宣言する */
-type Verdict = { action: 'switch' | 'notify'; hazard: string | null; label: string } | null;
-const judgeQuake = rawQuake as (xml: string) => Verdict;
-const judgeWarning = rawWarning as (xml: string) => Verdict;
 
 /**
  * 災害モードの自動切替の判定。
@@ -112,4 +109,60 @@ test('警報: 土砂災害警戒情報・大雨警報は通知のみ', () => {
 
 test('警報: 注意報だけなら何もしない', () => {
   assert.equal(judgeWarning(warnDoc('雷注意報', '波浪注意報')), null);
+});
+
+// ───────── 45通の再発 ─────────
+//
+// 2026-08-07 14:52 〜 08-08 17:00 の大雨警報で45通のメールが届いた。
+// 警報はその間ずっと継続していた。以下はその45通を再現しないための固定。
+
+test('★警報: 同じ発表の3形式が同じ種別に畳まれる', () => {
+  // 気象庁は1回の発表を3つの文書で配信し、Ｒ０６形式だけ警報名に
+  // 警戒レベルが付く。畳まないと1回の発表で3通になる。
+  const vpww53 = judgeWarning(warnDoc('大雨警報'));         // 気象特別警報・警報・注意報
+  const vpww54 = judgeWarning(warnDoc('大雨警報'));         // 気象警報・注意報（Ｈ２７）
+  const r06 = judgeWarning(warnDoc('レベル３大雨警報'));     // 気象警報・注意報（Ｒ０６）（大雨）
+  assert.deepEqual(vpww53?.kinds, ['大雨警報']);
+  assert.deepEqual(vpww54?.kinds, ['大雨警報']);
+  assert.deepEqual(r06?.kinds, ['大雨警報'], 'レベル表記が落ちていない');
+});
+
+test('★警報: 市町村の数だけ並んだ同じ警報を1件に畳む', () => {
+  // 実物の文書には市町村ごとに Kind が並ぶ（実測で106〜142個）
+  const many = Array.from({ length: 120 }, () => '大雨警報');
+  assert.deepEqual(judgeWarning(warnDoc(...many, 'レベル３大雨警報'))?.kinds, ['大雨警報']);
+});
+
+test('警報: レベル表記の正規化', () => {
+  assert.equal(normalizeKind('レベル３大雨警報'), '大雨警報');
+  assert.equal(normalizeKind('レベル4土砂災害警戒情報'), '土砂災害警戒情報');
+  assert.equal(normalizeKind('大雨警報'), '大雨警報');
+  // 「レベル」で始まらないものを削らない
+  assert.equal(normalizeKind('暴風雪特別警報'), '暴風雪特別警報');
+});
+
+test('★警報: 継続中の同じ警報は鳴らさない', () => {
+  const now = Date.parse('2026-08-08T13:39:00+09:00');
+  // 2分前に見かけて通知済み。再発表されただけなので鳴らさない
+  const prev = { last_seen: '2026-08-08T13:37:00+09:00', notified_at: '2026-08-07T14:52:00+09:00' };
+  assert.equal(shouldRing(prev, 6, now), false);
+});
+
+test('警報: 一度も通知していなければ鳴らす', () => {
+  assert.equal(shouldRing(null), true);
+  assert.equal(shouldRing({ last_seen: '2026-08-08T13:37:00+09:00', notified_at: null }), true);
+});
+
+test('警報: 収まってから間が空けば、次に出たときは鳴らす', () => {
+  const now = Date.parse('2026-08-09T00:00:00+09:00');
+  const prev = { last_seen: '2026-08-08T17:00:00+09:00', notified_at: '2026-08-07T14:52:00+09:00' };
+  assert.equal(shouldRing(prev, 6, now), true, '7時間空いたら別の一続きとして鳴らす');
+  assert.equal(shouldRing(prev, 12, now), false, 'しきい値内なら鳴らさない');
+});
+
+test('★警報: 継続中に種別が増えたら、増えた分は鳴る', () => {
+  // 大雨警報の最中に洪水警報が加わるのは状況の悪化。ここを黙らせてはいけない
+  const v = judgeWarning(warnDoc('大雨警報', 'レベル３大雨警報', '洪水警報'));
+  assert.deepEqual(v?.kinds, ['大雨警報', '洪水警報']);
+  assert.equal(shouldRing(null), true, '洪水警報には記録が無いので鳴る');
 });

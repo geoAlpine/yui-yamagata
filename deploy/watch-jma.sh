@@ -33,8 +33,11 @@ fi
 out=$(node scripts/watch_jma.mjs "$@" 2>&1)
 rc=$?
 
-# 切替・通知・失敗があったときだけ記録する
-if [ $rc -ne 0 ] || echo "$out" | grep -qE '★|通知のみ|失敗'; then
+# 切替・通知・失敗があったときだけ記録する。
+# 「通知済み」（同じ警報の出し直しで送らなかった分）も残す。
+# 鳴らさなかったことの記録が無いと、黙っているのが正常なのか
+# 壊れて止まっているのかを後から区別できない。
+if [ $rc -ne 0 ] || echo "$out" | grep -qE '★|通知のみ|通知済み|失敗'; then
   { echo "===== $(date -Is) ($TARGET) rc=$rc"; echo "$out"; } >> "$LOG"
 fi
 

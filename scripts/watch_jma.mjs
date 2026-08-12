@@ -57,6 +57,15 @@ const SWITCH_INTENSITIES = new Set(['5-', '5+', '6-', '6+', '7']);
 /** 通知だけする震度 */
 const NOTIFY_INTENSITIES = new Set(['4']);
 
+/**
+ * 同じ警報を再び鳴らすまでの間隔。
+ *
+ * これより短い間隔で見かけ続けている限り「同じ災害の続き」とみなして黙る。
+ * 6時間空いてから再び出てきたなら、それは別の一続きとして鳴らしてよい。
+ * 短くすると 2026-08-07 の45通に近づき、長くすると翌日の再発達を見落とす。
+ */
+const QUIET_HOURS = 6;
+
 const tag = (xml, name) => {
   const m = xml.match(new RegExp(`<${name}[^>]*>([^<]*)</${name}>`));
   return m ? m[1] : null;
@@ -152,6 +161,16 @@ export function judgeQuake(xml) {
 const jp = (i) => i.replace('-', '弱').replace('+', '強');
 
 /**
+ * 警報名から警戒レベルの接頭辞を落とす。
+ *
+ * 気象庁は同じ発表をＲ０６形式でも配信し、そちらは警報名に警戒レベルが付く。
+ *   VPWW53/54 →「大雨警報」
+ *   Ｒ０６     →「レベル３大雨警報」
+ * 別物として扱うと、同じ大雨警報で二度鳴る。
+ */
+export const normalizeKind = (k) => k.replace(/^レベル[0-9０-９]+/, '').trim();
+
+/**
  * 気象警報の判定。
  *
  * <Kind><Name>大雨特別警報</Name> の形。名前に「特別警報」を含むものだけを
@@ -160,23 +179,75 @@ const jp = (i) => i.replace('-', '弱').replace('+', '強');
  *
  * 解除は Status で分かるが、文書全体が現在の発表状況の一覧なので、
  * 「いま出ている特別警報があるか」を見れば足りる。
+ *
+ * kinds は正規化・重複排除した種別の一覧。鳴らすかどうかの判断はこれを使う。
+ * 文書には市町村の数だけ Kind が並ぶ（実測で106〜142個）ので、ここで畳まないと
+ * 同じ警報を市町村の数だけ数えることになる。
  */
 export function judgeWarning(xml) {
-  const kinds = [...xml.matchAll(/<Kind>([\s\S]*?)<\/Kind>/g)].map((m) => tag(m[1], 'Name') ?? '');
+  const kinds = [
+    ...new Set(
+      [...xml.matchAll(/<Kind>([\s\S]*?)<\/Kind>/g)]
+        .map((m) => normalizeKind(tag(m[1], 'Name') ?? ''))
+        .filter(Boolean)
+    ),
+  ];
   const special = kinds.filter((k) => k.includes('特別警報'));
   if (special.length) {
-    const uniq = [...new Set(special)];
     return {
       action: 'switch',
-      hazard: uniq.some((k) => k.includes('大雨')) ? 'flood' : null,
-      label: uniq.join('・'),
+      hazard: special.some((k) => k.includes('大雨')) ? 'flood' : null,
+      label: special.join('・'),
+      kinds: special,
     };
   }
   const notify = kinds.filter((k) => /土砂災害警戒情報|大雨警報|洪水警報/.test(k));
   if (notify.length) {
-    return { action: 'notify', hazard: null, label: [...new Set(notify)].join('・') };
+    return { action: 'notify', hazard: null, label: notify.join('・'), kinds: notify };
   }
   return null;
+}
+
+/**
+ * この警報を鳴らすか。DBを持たない形にして、しきい値の振る舞いを試験できるようにする。
+ *
+ * prev は jma_warning_state の1行（無ければ null）。
+ * 一度も送っていない、または最後に見かけてから QUIET_HOURS 以上空いていれば鳴らす。
+ *
+ * 「今回の文書に無い＝解除」とは判定しない。Ｒ０６形式は警報種別ごとの
+ * 部分的な文書なので、暴風の文書を処理しただけで大雨警報が消えたことになり、
+ * 次の発表でまた鳴り出す。見かけなくなって時間が経ったことだけを根拠にする。
+ */
+export function shouldRing(prev, quietHours = QUIET_HOURS, now = Date.now()) {
+  if (!prev || !prev.notified_at) return true;
+  return new Date(prev.last_seen).getTime() < now - quietHours * 3600_000;
+}
+
+/**
+ * まだ鳴らしていない警報だけを返し、見かけたことを記録する。
+ *
+ * 継続中の警報は last_seen だけが更新され、鳴らない。
+ * 新しい種別（洪水警報が加わった等）は記録が無いので鳴る。
+ */
+export async function unreportedKinds(pool, kinds) {
+  const fresh = [];
+  for (const kind of kinds) {
+    const { rows } = await pool.query(
+      `SELECT last_seen, notified_at FROM jma_warning_state WHERE kind = $1`,
+      [kind]
+    );
+    const rings = shouldRing(rows[0] ?? null);
+    if (rings) fresh.push(kind);
+    await pool.query(
+      `INSERT INTO jma_warning_state (kind, notified_at)
+       VALUES ($1, CASE WHEN $2 THEN now() END)
+       ON CONFLICT (kind) DO UPDATE
+         SET last_seen   = now(),
+             notified_at = CASE WHEN $2 THEN now() ELSE jma_warning_state.notified_at END`,
+      [kind, rings]
+    );
+  }
+  return fresh;
 }
 
 /**
@@ -298,15 +369,27 @@ async function main() {
         await switchToDisaster(pool, reason, verdict.hazard);
         action = 'switched';
       } else if (verdict?.action === 'notify') {
-        process.stdout.write(`    通知のみ: ${verdict.label}\n`);
-        notify(
-          `【やまがた結】${PREF}で${verdict.label}`,
-          `${verdict.label}が発表されました。\n\n` +
-            `自動切替のしきい値（震度5弱以上・特別警報）には達していません。\n` +
-            `災害モードにするかは判断してください。\n` +
-            `https://yui-yamagata.com/admin\n`
-        );
-        action = 'notified';
+        // 地震（震度4）は発表ごとに別の地震なので、そのまま鳴らす。
+        // 気象警報は同じ警報が何度も出し直されるので、種別ごとに一度だけにする。
+        const fresh =
+          key === 'eqvol' || DRY ? verdict.kinds ?? [verdict.label]
+                                 : await unreportedKinds(pool, verdict.kinds);
+        if (fresh.length) {
+          const label = fresh.join('・');
+          process.stdout.write(`    通知のみ: ${label}\n`);
+          notify(
+            `【やまがた結】${PREF}で${label}`,
+            `${label}が発表されました。\n\n` +
+              `自動切替のしきい値（震度5弱以上・特別警報）には達していません。\n` +
+              `災害モードにするかは判断してください。\n` +
+              `https://yui-yamagata.com/admin\n`
+          );
+          action = 'notified';
+        } else {
+          // 同じ警報の出し直し。鳴らさないが、握り潰したことは残す
+          process.stdout.write(`    通知済みのため送らない: ${verdict.label}\n`);
+          action = 'suppressed';
+        }
       }
 
       if (!DRY) {
@@ -321,6 +404,10 @@ async function main() {
 
   if (!DRY) {
     await pool.query(`DELETE FROM jma_seen WHERE seen_at < now() - interval '30 days'`);
+    // 30日見かけていない警報は、次に出たら鳴らしてよい。行を残す理由がない
+    await pool.query(
+      `DELETE FROM jma_warning_state WHERE last_seen < now() - interval '30 days'`
+    );
   }
   await pool.end();
 }
